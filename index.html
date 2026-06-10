@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Babylon.js Soccer Game - Broadcast View</title>
+  <title>Babylon.js Advanced Soccer Game</title>
   <style>
     html, body {
       overflow: hidden;
@@ -18,18 +18,34 @@
       height: 100%;
       touch-action: none;
     }
-    #ui-info {
+    #ui-container {
       position: absolute;
       top: 20px;
       left: 20px;
       color: white;
-      font-family: sans-serif;
-      background: rgba(0, 0, 0, 0.6);
-      padding: 12px 18px;
-      border-radius: 8px;
+      font-family: 'Malgun Gothic', sans-serif;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 15px 20px;
+      border-radius: 10px;
       pointer-events: none;
-      line-height: 1.5;
+      line-height: 1.6;
       z-index: 10;
+    }
+    /* 슛 파워 게이지 바 */
+    #power-bar-container {
+      margin-top: 10px;
+      width: 200px;
+      height: 15px;
+      background-color: #333;
+      border-radius: 5px;
+      overflow: hidden;
+      display: none;
+    }
+    #power-bar {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(to right, #4caf50, #ffeb3b, #f44336);
+      transition: width 0.05s linear;
     }
     #goal-overlay {
       position: absolute;
@@ -38,31 +54,31 @@
       transform: translate(-50%, -50%);
       color: #ffeb3b;
       font-family: 'Arial Black', sans-serif;
-      font-size: 64px;
+      font-size: 72px;
       font-weight: bold;
-      text-shadow: 3px 3px 0px #000, -3px -3px 0px #000, 3px -3px 0px #000, -3px 3px 0px #000;
+      text-shadow: 4px 4px 0px #000, -4px -4px 0px #000, 4px -4px 0px #000, -4px 4px 0px #000;
       display: none;
       pointer-events: none;
       z-index: 20;
-      animation: pop 0.5s ease-in-out infinite alternate;
+      animation: pop 0.4s ease-in-out infinite alternate;
     }
     @keyframes pop {
-      from { transform: translate(-50%, -50%) scale(0.9); }
-      to { transform: translate(-50%, -50%) scale(1.1); }
+      from { transform: translate(-50%, -50%) scale(0.95); }
+      to { transform: translate(-50%, -50%) scale(1.05); }
     }
-    .highlight {
-      color: #ffeb3b;
-      font-weight: bold;
-    }
+    .highlight { color: #ffeb3b; font-weight: bold; }
   </style>
   <script src="https://cdn.babylonjs.com/babylon.js"></script>
 </head>
 <body>
 
-  <div id="ui-info">
-    📺 <b>중계석 뷰 (Side Broadcast View)</b><br>
-    • 이동: <span class="highlight">W, A, S, D</span> 또는 <span class="highlight">방향키</span><br>
-    • 슛: 공을 잡은 상태에서 <span class="highlight">Spacebar</span> (이동 방향으로 강하게 슛)
+  <div id="ui-container">
+    📺 <b>3D 리얼 브로드캐스트 게임</b><br>
+    • 이동: <span class="highlight">W, A, S, D</span> 또는 <span class="highlight">방향키</span> (화면 기준 직관적 이동)<br>
+    • 슛: 스페이스바 <span class="highlight">길게 누르기</span> (게이지 충전 후 뗄 때 발사)
+    <div id="power-bar-container">
+      <div id="power-bar"></div>
+    </div>
   </div>
   
   <div id="goal-overlay">GOAL!!!</div>
@@ -73,32 +89,71 @@
     const { Engine, Scene, FreeCamera, Vector3, HemisphericLight, MeshBuilder, StandardMaterial, Color3 } = BABYLON;
 
     // ==========================================
-    // 1. Player 클래스
+    // 1. Player 클래스 (사람 형태 캐릭터)
     // ==========================================
     class Player {
       constructor(scene) {
         this.scene = scene;
-        this.speed = 0.2;
+        this.speed = 0.22;
         this.inputMap = {};
         this.hasBall = false;
-        this.moveDirection = new Vector3(0, 0, 1); // 바라보는 기본 방향 (기본 앞쪽)
+        this.moveDirection = new Vector3(-1, 0, 0); // 화면 기준 초기 왼쪽 방향 바라봄
         
-        this.createMesh();
+        this.createHumanoidMesh();
         this.setupInput();
       }
 
-      createMesh() {
-        this.mesh = MeshBuilder.CreateCapsule("player", { height: 2, radius: 0.6 }, this.scene);
-        this.resetPosition();
+      createHumanoidMesh() {
+        // 플레이어 파트들을 담을 루트 메인 허브 생성
+        this.mesh = MeshBuilder.CreateBox("playerRoot", { size: 0.1 }, this.scene);
+        this.mesh.isVisible = false;
 
-        const material = new StandardMaterial("playerMat", this.scene);
-        material.diffuseColor = new Color3(1, 0.1, 0.1);
-        this.mesh.material = material;
+        const skinMat = new StandardMaterial("skinMat", this.scene);
+        skinMat.diffuseColor = new Color3(0.9, 0.7, 0.6); // 살구색
+        const uniformMat = new StandardMaterial("uniformMat", this.scene);
+        uniformMat.diffuseColor = new Color3(1, 0.1, 0.1); // 빨간 유니폼
+
+        // 몸통 (Torso)
+        this.torso = MeshBuilder.CreateBox("torso", { width: 0.8, height: 1.2, depth: 0.4 }, this.scene);
+        this.torso.position.y = 1.3;
+        this.torso.material = uniformMat;
+        this.torso.parent = this.mesh;
+
+        // 머리 (Head)
+        this.head = MeshBuilder.CreateSphere("head", { diameter: 0.5 }, this.scene);
+        this.head.position.y = 2.1;
+        this.head.material = skinMat;
+        this.head.parent = this.mesh;
+
+        // 왼다리, 오른다리 (Legs)
+        this.leftLeg = MeshBuilder.CreateCylinder("leftLeg", { height: 0.8, diameter: 0.22 }, this.scene);
+        this.leftLeg.position.set(-0.25, 0.4, 0);
+        this.leftLeg.material = skinMat;
+        this.leftLeg.parent = this.mesh;
+
+        this.rightLeg = this.leftLeg.clone("rightLeg");
+        this.rightLeg.position.x = 0.25;
+        this.rightLeg.parent = this.mesh;
+
+        // 왼팔, 오른팔 (Arms)
+        this.leftArm = MeshBuilder.CreateCylinder("leftArm", { height: 0.8, diameter: 0.18 }, this.scene);
+        this.leftArm.position.set(-0.5, 1.3, 0);
+        this.leftArm.rotation.z = Math.PI / 24;
+        this.leftArm.material = skinMat;
+        this.leftArm.parent = this.mesh;
+
+        this.rightArm = this.leftArm.clone("rightArm");
+        this.rightArm.position.x = 0.5;
+        this.rightArm.rotation.z = -Math.PI / 24;
+        this.rightArm.parent = this.mesh;
+
+        this.resetPosition();
       }
 
       resetPosition() {
-        this.mesh.position.set(0, 1, -10); // 하프라인 아래쪽 진영으로 리셋
-        this.moveDirection.set(0, 0, 1);
+        this.mesh.position.set(0, 0, -10);
+        this.moveDirection.set(-1, 0, 0); // 시작할 때 골대 쪽 조준
+        this.mesh.rotation.y = 0;
       }
 
       setupInput() {
@@ -115,27 +170,39 @@
       }
 
       update() {
-        let dx = 0;
-        let dz = 0;
+        let camSpaceX = 0; // 화면 기준 좌우 이동량
+        let camSpaceZ = 0; // 화면 기준 상하 이동량
 
-        // 사이드 뷰 기준 화면 제어: 
-        // 카메라가 측면(X축 먼 곳)에서 보기 때문에, 플레이어 기준 W/S는 화면 좌우, A/D는 화면 위아래처럼 느껴질 수 있습니다.
-        // 직관적인 조작을 위해 키 입력을 실제 경기장 절대 좌표 축(W/S = Z축 축구장 세로, A/D = X축 축구장 가로)에 맞췄습니다.
-        if (this.inputMap["w"] || this.inputMap["arrowup"]) dz += 1;
-        if (this.inputMap["s"] || this.inputMap["arrowdown"]) dz -= 1;
-        if (this.inputMap["a"] || this.inputMap["arrowleft"]) dx -= 1;
-        if (this.inputMap["d"] || this.inputMap["arrowright"]) dx += 1;
+        // [수정] 화면(카메라 시점) 기준 조작 동기화
+        // 카메라는 우측 터치라인 바깥에서 왼쪽을 바라보고 있음.
+        // 따라서 화면 위쪽(W)은 경기장 안쪽(+X), 아래쪽(S)은 경기장 바깥쪽(-X)
+        // 화면 왼쪽(A)은 경기장 위쪽(+Z), 오른쪽(D)은 경기장 아래쪽(-Z)
+        if (this.inputMap["w"] || this.inputMap["arrowup"])    camSpaceX -= 1; // 화면 위 = 경기장 -X 방향
+        if (this.inputMap["s"] || this.inputMap["arrowdown"])  camSpaceX += 1; // 화면 아래 = 경기장 +X 방향
+        if (this.inputMap["a"] || this.inputMap["arrowleft"])  camSpaceZ += 1; // 화면 왼쪽 = 경기장 +Z 방향
+        if (this.inputMap["d"] || this.inputMap["arrowright"]) camSpaceZ -= 1; // 화면 오른쪽 = 경기장 -Z 방향
 
-        if (dx !== 0 || dz !== 0) {
-          // 이동 벡터 정규화 및 이동
-          const inputDir = new Vector3(dx, 0, dz).normalize();
+        if (camSpaceX !== 0 || camSpaceZ !== 0) {
+          const inputDir = new Vector3(camSpaceX, 0, camSpaceZ).normalize();
           this.mesh.position.addInPlace(inputDir.scale(this.speed));
-          this.moveDirection.copyFrom(inputDir); // 현재 이동 중인 방향을 기록 (드리블 및 슛 방향에 사용)
+          this.moveDirection.copyFrom(inputDir);
+
+          // 이동하는 방향을 바라보도록 캐릭터 메쉬 회전 설정
+          const angle = Math.atan2(inputDir.x, inputDir.z);
+          this.mesh.rotation.y = angle;
+
+          // 간단한 걷기 애니메이션 흉내 (다리 교차 흔들기)
+          const time = performance.now() * 0.01;
+          this.leftLeg.rotation.x = Math.sin(time) * 0.4;
+          this.rightLeg.rotation.x = -Math.sin(time) * 0.4;
+        } else {
+          this.leftLeg.rotation.x = 0;
+          this.rightLeg.rotation.x = 0;
         }
 
-        // 경기장 안쪽으로만 이동 제한
-        this.mesh.position.x = Math.max(-24, Math.min(24, this.mesh.position.x));
-        this.mesh.position.z = Math.max(-34, Math.min(34, this.mesh.position.z));
+        // 경기장 이탈 제한 보정
+        this.mesh.position.x = Math.max(-34, Math.min(34, this.mesh.position.x));
+        this.mesh.position.z = Math.max(-49, Math.min(49, this.mesh.position.z));
       }
     }
 
@@ -148,56 +215,94 @@
         this.engine = new Engine(this.canvas, true);
         this.scene = new Scene(this.engine);
         
-        this.fieldWidth = 50;
-        this.fieldHeight = 70;
+        // 경기장 대폭 확장 (가로 70, 세로 100)
+        this.fieldWidth = 70;
+        this.fieldHeight = 100;
         this.ballVelocity = new Vector3(0, 0, 0);
-        this.friction = 0.96;
+        this.friction = 0.97; // 구름성 개선
         this.isResetting = false;
+
+        // 슛 게이지 시스템 변수
+        this.shootPowerMax = 1.8;
+        this.shootPowerCurrent = 0.3;
+        this.isChargingShoot = false;
 
         this.initScene();
         this.createField();
-        this.createGoals();
+        this.createRealGoals();
         this.createBall();
         this.player = new Player(this.scene);
       }
 
       initScene() {
-        // [수정] 사이드 뷰 카메라 배치: 경기장의 '오른쪽 사이드라인 밖'에서 전체를 조망합니다.
-        // X축 좌표를 멀리 배치(52)하고 경기장 중앙(0,0,0)을 바라보게 세팅하여 양쪽 골대가 화면 좌우에 배치됩니다.
-        this.camera = new FreeCamera("sideCamera", new Vector3(48, 22, 0), this.scene);
-        this.camera.setTarget(new Vector3(0, -3, 0)); 
+        // 사이드 브로드캐스트 전용 카메라 뷰
+        this.camera = new FreeCamera("sideCamera", new Vector3(65, 26, 0), this.scene);
+        this.camera.setTarget(new Vector3(0, -5, 0)); 
         
         this.light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
-        this.light.intensity = 0.9;
+        this.light.intensity = 0.95;
       }
 
       createField() {
         const field = MeshBuilder.CreateGround("soccerField", { width: this.fieldWidth, height: this.fieldHeight }, this.scene);
         const fieldMat = new StandardMaterial("fieldMat", this.scene);
-        fieldMat.diffuseColor = new Color3(0.15, 0.55, 0.22);
+        fieldMat.diffuseColor = new Color3(0.12, 0.52, 0.18);
         field.material = fieldMat;
       }
 
-      createGoals() {
-        this.goalW = 10; this.goalH = 4; this.goalD = 2;
-
-        // 위쪽 골대 (Z = 35) - 화면 우측에 위치하게 됨
-        this.createGoalStructure(0, 35, this.goalW, this.goalH, this.goalD);
-        // 아래쪽 골대 (Z = -35) - 화면 좌측에 위치하게 됨
-        this.createGoalStructure(0, -35, this.goalW, this.goalH, this.goalD);
+      createRealGoals() {
+        this.goalW = 14; this.goalH = 5; this.goalD = 4;
+        
+        // 위쪽 골대 (Z = 50)
+        this.createNetStructure(0, 50, this.goalW, this.goalH, this.goalD, true);
+        // 아래쪽 골대 (Z = -50)
+        this.createNetStructure(0, -50, this.goalW, this.goalH, this.goalD, false);
       }
 
-      createGoalStructure(x, z, w, h, d) {
-        const topBar = MeshBuilder.CreateBox("goalTop", { width: w, height: 0.2, depth: d }, this.scene);
-        topBar.position.set(x, h, z);
-        const leftPost = MeshBuilder.CreateBox("goalLeft", { width: 0.2, height: h, depth: d }, this.scene);
+      createNetStructure(x, z, w, h, d, isTop) {
+        const whiteMat = new StandardMaterial("whiteMat", this.scene);
+        whiteMat.diffuseColor = new Color3(0.95, 0.95, 0.95);
+
+        const netMat = new StandardMaterial("netMat", this.scene);
+        netMat.diffuseColor = new Color3(0.8, 0.8, 0.8);
+        netMat.alpha = 0.3; // 반투명하게 골망 표현
+
+        const zDir = isTop ? 1 : -1;
+
+        // 1. 골대 프레임 (골포스트 둥근 파이프로 리얼하게 표현)
+        const leftPost = MeshBuilder.CreateCylinder("postL", { height: h, diameter: 0.25 }, this.scene);
         leftPost.position.set(x - w/2, h/2, z);
-        const rightPost = MeshBuilder.CreateBox("goalRight", { width: 0.2, height: h, depth: d }, this.scene);
+        leftPost.material = whiteMat;
+
+        const rightPost = MeshBuilder.CreateCylinder("postR", { height: h, diameter: 0.25 }, this.scene);
         rightPost.position.set(x + w/2, h/2, z);
+        rightPost.material = whiteMat;
+
+        const topBar = MeshBuilder.CreateCylinder("barT", { height: w, diameter: 0.25 }, this.scene);
+        topBar.position.set(x, h, z);
+        topBar.rotation.z = Math.PI / 2;
+        topBar.material = whiteMat;
+
+        // 2. 입체적인 골망 그물망 (상자 및 평면 배치)
+        const backNet = MeshBuilder.CreateBox("backNet", { width: w, height: h, depth: 0.1 }, this.scene);
+        backNet.position.set(x, h/2, z + (d * zDir));
+        backNet.material = netMat;
+
+        const topNet = MeshBuilder.CreateBox("topNet", { width: w, height: 0.1, depth: d }, this.scene);
+        topNet.position.set(x, h, z + (d/2 * zDir));
+        topNet.material = netMat;
+
+        const sideNetL = MeshBuilder.CreateBox("sideNetL", { width: 0.1, height: h, depth: d }, this.scene);
+        sideNetL.position.set(x - w/2, h/2, z + (d/2 * zDir));
+        sideNetL.material = netMat;
+
+        const sideNetR = MeshBuilder.CreateBox("sideNetR", { width: 0.1, height: h, depth: d }, this.scene);
+        sideNetR.position.set(x + w/2, h/2, z + (d/2 * zDir));
+        sideNetR.material = netMat;
       }
 
       createBall() {
-        this.ballRadius = 0.5;
+        this.ballRadius = 0.55;
         this.ball = MeshBuilder.CreateSphere("soccerBall", { diameter: this.ballRadius * 2 }, this.scene);
         this.resetBall();
 
@@ -207,7 +312,6 @@
       }
 
       resetBall() {
-        // 공을 센터서클 정중앙 바닥에 정렬
         this.ball.position.set(0, this.ballRadius, 0);
         this.ballVelocity.set(0, 0, 0);
       }
@@ -217,56 +321,56 @@
         this.isResetting = true;
         this.player.hasBall = false;
 
-        // UI에 골 알림 표시
         const overlay = document.getElementById("goal-overlay");
         overlay.style.display = "block";
 
-        // 2초 뒤 중앙으로 리셋 및 UI 숨기기
         setTimeout(() => {
           this.resetBall();
           this.player.resetPosition();
           overlay.style.display = "none";
           this.isResetting = false;
-        }, 2000);
+        }, 2200);
       }
 
       processBallPhysics() {
         if (this.isResetting) return;
 
         if (this.player.hasBall) {
-          // [수정] 드리블 방향 연동:
-          // 공이 플레이어의 단순 고정 앞이 아니라, 플레이어가 조작/이동 중인 방향(moveDirection) 앞쪽에 붙어 이동합니다.
+          // 드리블 시 플레이어가 회전하여 바라보는 앞방향(moveDirection)에 안정적으로 밀착 유지
           const offset = this.player.moveDirection.scale(1.2);
           this.ball.position.x = this.player.mesh.position.x + offset.x;
           this.ball.position.z = this.player.mesh.position.z + offset.z;
           this.ball.position.y = this.ballRadius; 
           this.ballVelocity.set(0, 0, 0);
         } else {
-          // 물리 이동 및 마찰
           this.ball.position.addInPlace(this.ballVelocity);
           this.ballVelocity.scaleInPlace(this.friction);
 
           if (this.ballVelocity.length() < 0.001) this.ballVelocity.set(0, 0, 0);
 
-          // 골대 골인 조건 체크 (Z축 가로지르는 끝선 도달 시 가로 -5 ~ +5 안쪽이면 골)
-          if (Math.abs(this.ball.position.z) >= 34.8) {
+          // [버그 수정 완료] 골 라인 및 박스 범위 기반 정밀한 골인 탐지 시스템
+          // 경기장 끝선인 Z = +-49.5 부근에 도달했을 때 골대 안쪽 범위(가로 폭 -7 ~ +7)에 정밀 연산 적용
+          if (Math.abs(this.ball.position.z) >= 49.3) {
             if (this.ball.position.x >= -this.goalW/2 && this.ball.position.x <= this.goalW/2) {
               this.triggerGoal();
               return;
             }
           }
 
-          // 벽 튕기기 안전장치
+          // 경기장 터치라인(외곽 벽) 충돌 바운스 연산
           const borderX = (this.fieldWidth / 2) - this.ballRadius;
           const borderZ = (this.fieldHeight / 2) - this.ballRadius;
 
           if (Math.abs(this.ball.position.x) > borderX) {
             this.ball.position.x = Math.sign(this.ball.position.x) * borderX;
-            this.ballVelocity.x *= -0.6;
+            this.ballVelocity.x *= -0.5;
           }
           if (Math.abs(this.ball.position.z) > borderZ) {
-            this.ball.position.z = Math.sign(this.ball.position.z) * borderZ;
-            this.ballVelocity.z *= -0.6;
+            // 골대 구역 밖에서 벽에 부딪혔을 때만 튕기게 처리
+            if (this.ball.position.x < -this.goalW/2 || this.ball.position.x > this.goalW/2) {
+              this.ball.position.z = Math.sign(this.ball.position.z) * borderZ;
+              this.ballVelocity.z *= -0.5;
+            }
           }
 
           if (this.ball.position.y !== this.ballRadius) this.ball.position.y = this.ballRadius;
@@ -280,21 +384,36 @@
         const ballPos = this.ball.position;
         const distance = Vector3.Distance(playerPos, ballPos);
 
-        // 1. 드리블 판정
-        if (!this.player.hasBall && distance < 1.4) {
+        // 1. 공 자동 획득 (획득 트리거 범위 소폭 조정)
+        if (!this.player.hasBall && distance < 1.5) {
           this.player.hasBall = true;
         }
 
-        // 2. 슛 메커니즘 (스페이스바 입력)
-        if (this.player.hasBall && this.player.inputMap[" "]) {
-          this.player.hasBall = false;
+        // 2. [수정] 스페이스바 누르기 깊이에 따른 파워 차징 슛 메커니즘
+        if (this.player.hasBall) {
+          if (this.player.inputMap[" "]) {
+            // 스페이스바를 누르고 있는 동안 게이지 충전
+            this.isChargingShoot = true;
+            document.getElementById("power-bar-container").style.display = "block";
+            
+            if (this.shootPowerCurrent < this.shootPowerMax) {
+              this.shootPowerCurrent += 0.05; // 충전 속도
+              const percent = ((this.shootPowerCurrent - 0.3) / (this.shootPowerMax - 0.3)) * 100;
+              document.getElementById("power-bar").style.width = percent + "%";
+            }
+          } else if (this.isChargingShoot && !this.player.inputMap[" "]) {
+            // 스페이스바에서 손을 떼는 순간 모아둔 파워로 슛 발사
+            this.player.hasBall = false;
+            this.isChargingShoot = false;
 
-          // [수정] 이동 방향으로 슛: 골대 고정 조준 대신 선수가 전진하고 있던 방향(moveDirection)으로 공을 날립니다.
-          const shootDirection = this.player.moveDirection.normalize();
-          const shootPower = 1.3;
-          this.ballVelocity = shootDirection.scale(shootPower);
-          
-          this.player.inputMap[" "] = false; 
+            const shootDirection = this.player.moveDirection.normalize();
+            this.ballVelocity = shootDirection.scale(this.shootPowerCurrent);
+
+            // 게이지 초기화 및 숨김
+            this.shootPowerCurrent = 0.3;
+            document.getElementById("power-bar-container").style.display = "none";
+            document.getElementById("power-bar").style.width = "0%";
+          }
         }
       }
 
