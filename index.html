@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Babylon.js Realistic Soccer Game</title>
+  <title>Babylon.js Advanced Soccer Game - Physics Upgraded</title>
   <style>
     html, body {
       overflow: hidden;
@@ -92,10 +92,10 @@
 <body>
 
   <div id="ui-container">
-    🎮 <b>직관적 조작 업데이트</b><br>
-    • 이동: <span class="highlight">화살표 키 (↑, ↓, ←, →)</span><br>
-    &nbsp;&nbsp; (↑ 누르면 무조건 화면 위, ↓ 누르면 무조건 화면 아래)<br>
-    • 슛: 공을 잡고 스페이스바 <span class="highlight">길게 누르기</span>
+    🎮 <b>업데이트된 조작법</b><br>
+    • 이동: <span class="highlight">화살표 키 (↑, ↓, ←, →)</span> (기본 속도 하향)<br>
+    • 대시: <span class="highlight">E 키</span> 누르고 있으면 고속 대시 수행!<br>
+    • 슛: 공을 잡고 스페이스바 <span class="highlight">길게 누르기</span> (파워에 비례해 공이 공중으로 부양)
     <div id="power-bar-container">
       <div id="power-bar"></div>
     </div>
@@ -115,12 +115,13 @@
     const { Engine, Scene, FreeCamera, Vector3, HemisphericLight, MeshBuilder, StandardMaterial, Color3, DynamicTexture } = BABYLON;
 
     // ==========================================
-    // 1. Player 클래스 (리얼 유니폼 & 화면 기준 이동)
+    // 1. Player 클래스 (기본속도 조절 및 E키 스프린트)
     // ==========================================
     class Player {
       constructor(scene) {
         this.scene = scene;
-        this.speed = 0.24;
+        this.baseSpeed = 0.11;   // [수정] 기본 속도 대폭 낮춤
+        this.dashSpeed = 0.25;   // [수정] E키를 누르면 낼 속도
         this.inputMap = {};
         this.hasBall = false;
         this.moveDirection = new Vector3(0, 0, 1); 
@@ -130,86 +131,54 @@
       }
 
       createDetailedHumanoid() {
-        // 루트 노드
         this.mesh = MeshBuilder.CreateBox("playerRoot", { size: 0.1 }, this.scene);
         this.mesh.isVisible = false;
 
-        // 재질(Material) 정의
         const skinMat = new StandardMaterial("skinMat", this.scene);
-        skinMat.diffuseColor = new Color3(0.95, 0.75, 0.65); // 살구색 피부
-        
+        skinMat.diffuseColor = new Color3(0.95, 0.75, 0.65); 
         const jerseyMat = new StandardMaterial("jerseyMat", this.scene);
-        jerseyMat.diffuseColor = new Color3(0.9, 0.1, 0.1); // 빨간 상의 유니폼
-
+        jerseyMat.diffuseColor = new Color3(0.9, 0.1, 0.1); 
         const pantsMat = new StandardMaterial("pantsMat", this.scene);
-        pantsMat.diffuseColor = new Color3(1, 1, 1); // 흰색 축구 바지
-
+        pantsMat.diffuseColor = new Color3(1, 1, 1); 
         const socksMat = new StandardMaterial("socksMat", this.scene);
-        socksMat.diffuseColor = new Color3(0.1, 0.1, 0.1); // 검은 양말/축구화
+        socksMat.diffuseColor = new Color3(0.1, 0.1, 0.1); 
 
-        // 1. 몸통 (상의 유니폼)
+        // 몸통
         this.torso = MeshBuilder.CreateBox("torso", { width: 0.8, height: 1.1, depth: 0.45 }, this.scene);
         this.torso.position.y = 1.35;
         this.torso.material = jerseyMat;
         this.torso.parent = this.mesh;
 
-        // 등번호 10번 구현 (DynamicTexture를 이용해 유니폼 뒤에 10 표시)
+        // 등번호
         const numberPlate = MeshBuilder.CreatePlane("numPlate", { width: 0.5, height: 0.6 }, this.scene);
-        numberPlate.position.set(0, 1.35, -0.23); // 등 뒤에 밀착
-        numberPlate.rotation.y = Math.PI; // 뒤를 보게 회전
+        numberPlate.position.set(0, 1.35, -0.23); 
+        numberPlate.rotation.y = Math.PI; 
         const tex = new DynamicTexture("dynamicTex", {width:256, height:256}, this.scene);
         tex.hasAlpha = true;
         const ctx = tex.getContext();
-        ctx.fillStyle = "transparent";
-        ctx.font = "bold 160px Arial";
-        ctx.fillStyle = "white";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("10", 128, 128);
-        tex.update();
+        ctx.fillStyle = "transparent"; ctx.font = "bold 160px Arial"; ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("10", 128, 128); tex.update();
         const numMat = new StandardMaterial("numMat", this.scene);
-        numMat.diffuseTexture = tex;
-        numberPlate.material = numMat;
-        numberPlate.parent = this.mesh;
+        numMat.diffuseTexture = tex; numberPlate.material = numMat; numberPlate.parent = this.mesh;
 
-        // 2. 하의 (바지)
+        // 하의, 머리, 사지 조립
         this.pants = MeshBuilder.CreateBox("pants", { width: 0.82, height: 0.4, depth: 0.47 }, this.scene);
-        this.pants.position.y = 0.8;
-        this.pants.material = pantsMat;
-        this.pants.parent = this.mesh;
-
-        // 3. 머리
+        this.pants.position.y = 0.8; this.pants.material = pantsMat; this.pants.parent = this.mesh;
         this.head = MeshBuilder.CreateSphere("head", { diameter: 0.52 }, this.scene);
-        this.head.position.y = 2.15;
-        this.head.material = skinMat;
-        this.head.parent = this.mesh;
-
-        // 4. 다리 (바지 밑단 + 다리 + 축구화 디테일 분할 조립)
+        this.head.position.y = 2.15; this.head.material = skinMat; this.head.parent = this.mesh;
         this.leftLeg = MeshBuilder.CreateCylinder("leftLeg", { height: 0.7, diameter: 0.22 }, this.scene);
-        this.leftLeg.position.set(-0.24, 0.35, 0);
-        this.leftLeg.material = socksMat;
-        this.leftLeg.parent = this.mesh;
-
-        this.rightLeg = this.leftLeg.clone("rightLeg");
-        this.rightLeg.position.x = 0.24;
-        this.rightLeg.parent = this.mesh;
-
-        // 5. 팔 (반팔 소매 효과)
+        this.leftLeg.position.set(-0.24, 0.35, 0); this.leftLeg.material = socksMat; this.leftLeg.parent = this.mesh;
+        this.rightLeg = this.leftLeg.clone("rightLeg"); this.rightLeg.position.x = 0.24; this.rightLeg.parent = this.mesh;
         this.leftArm = MeshBuilder.CreateCylinder("leftArm", { height: 0.8, diameter: 0.18 }, this.scene);
-        this.leftArm.position.set(-0.52, 1.35, 0);
-        this.leftArm.material = skinMat;
-        this.leftArm.parent = this.mesh;
-
-        this.rightArm = this.leftArm.clone("rightArm");
-        this.rightArm.position.x = 0.52;
-        this.rightArm.parent = this.mesh;
+        this.leftArm.position.set(-0.52, 1.35, 0); this.leftArm.material = skinMat; this.leftArm.parent = this.mesh;
+        this.rightArm = this.leftArm.clone("rightArm"); this.rightArm.position.x = 0.52; this.rightArm.parent = this.mesh;
 
         this.resetPosition();
       }
 
       resetPosition() {
-        this.mesh.position.set(-15, 0, 0); // 우리 진영 시작
-        this.moveDirection.set(0, 0, 1); // 화면 오른쪽(상대 골대 방향) 조준
+        this.mesh.position.set(-15, 0, 0); 
+        this.moveDirection.set(0, 0, 1); 
         this.mesh.rotation.y = Math.PI / 2;
       }
 
@@ -217,60 +186,55 @@
         this.scene.onKeyboardObservable.add((kbInfo) => {
           switch (kbInfo.type) {
             case BABYLON.KeyboardEventTypes.KEYDOWN:
-              this.inputMap[kbInfo.event.key] = true;
+              this.inputMap[kbInfo.event.key.toLowerCase()] = true;
               break;
             case BABYLON.KeyboardEventTypes.KEYUP:
-              this.inputMap[kbInfo.event.key] = false;
+              this.inputMap[kbInfo.event.key.toLowerCase()] = false;
               break;
           }
         });
       }
 
       update() {
-        let moveX = 0; // 경기장의 X축 (사이드라인 상하)
-        let moveZ = 0; // 경기장의 Z축 (골대 좌우)
+        let moveX = 0;
+        let moveZ = 0;
 
-        // [수정] 화면(카메라 렌더링 뷰) 기준 직관적 화살표 이동 설계
-        // 중계 카메라가 우측 터치라인 바깥(+X)에서 경기장 내부(-X)를 바라보고 있으므로:
-        // ↑ 키 = 화면의 위쪽으로 이동해야 함 = 실제 경기장에서는 -X 방향 (골대 기준 하프라인 중심선)
-        // ↓ 키 = 화면의 아래쪽으로 이동해야 함 = 실제 경기장에서는 +X 방향
-        // ← 키 = 화면의 왼쪽으로 이동해야 함 = 실제 경기장에서는 -Z 방향 (우리팀 골대)
-        // → 키 = 화면의 오른쪽으로 이동해야 함 = 실제 경기장에서는 +Z 방향 (상대팀 골대)
-        if (this.inputMap["ArrowUp"])    moveX -= 1;
-        if (this.inputMap["ArrowDown"])  moveX += 1;
-        if (this.inputMap["ArrowLeft"])  moveZ -= 1;
-        if (this.inputMap["ArrowRight"]) moveZ += 1;
+        if (this.inputMap["arrowup"])    moveX -= 1;
+        if (this.inputMap["arrowdown"])  moveX += 1;
+        if (this.inputMap["arrowleft"])  moveZ -= 1;
+        if (this.inputMap["arrowright"]) moveZ += 1;
+
+        // [수정] E키 감지 여부에 따라 현재 속도 스위칭 결정
+        const currentSpeed = (this.inputMap["e"]) ? this.dashSpeed : this.baseSpeed;
 
         if (moveX !== 0 || moveZ !== 0) {
           const inputDir = new Vector3(moveX, 0, moveZ).normalize();
-          this.mesh.position.addInPlace(inputDir.scale(this.speed));
+          this.mesh.position.addInPlace(inputDir.scale(currentSpeed));
           this.moveDirection.copyFrom(inputDir);
 
-          // 이동 방향으로 정밀 회전 연산
           const angle = Math.atan2(inputDir.x, inputDir.z);
           this.mesh.rotation.y = angle;
 
-          // 역동적인 뛰기 애니메이션 
-          const time = performance.now() * 0.016;
+          // 대시 중일 땐 발을 더 빠르게 구르도록 배율(speedFactor) 조정
+          const animeSpeed = (this.inputMap["e"]) ? 0.026 : 0.014;
+          const time = performance.now() * animeSpeed;
           this.leftLeg.rotation.x = Math.sin(time) * 0.5;
           this.rightLeg.rotation.x = -Math.sin(time) * 0.5;
           this.leftArm.rotation.x = -Math.sin(time) * 0.3;
           this.rightArm.rotation.x = Math.sin(time) * 0.3;
         } else {
-          this.leftLeg.rotation.x = 0;
-          this.rightLeg.rotation.x = 0;
-          this.leftArm.rotation.x = 0;
-          this.rightArm.rotation.x = 0;
+          this.leftLeg.rotation.x = 0; this.rightLeg.rotation.x = 0;
+          this.leftArm.rotation.x = 0; this.rightArm.rotation.x = 0;
         }
 
-        // 경기장 아웃 제한 설정
-        this.mesh.position.x = Math.max(-34, Math.min(34, this.mesh.position.x));
-        this.mesh.position.z = Math.max(-49, Math.min(49, this.mesh.position.z));
+        // 경기장 아웃 제한 설정 (사이드라인 밖으로 나가 리포지셔닝 되기 전 하드 가드)
+        this.mesh.position.x = Math.max(-34.5, Math.min(34.5, this.mesh.position.x));
+        this.mesh.position.z = Math.max(-49.5, Math.min(49.5, this.mesh.position.z));
       }
     }
 
     // ==========================================
-    // 2. Game 클래스 (격자 잔디 텍스처 자체 생성)
+    // 2. Game 클래스 (3D 로빙 슛 및 외곽 터치 아웃 처리)
     // ==========================================
     class Game {
       constructor(canvas) {
@@ -280,19 +244,23 @@
         
         this.fieldWidth = 70;
         this.fieldHeight = 100;
+        
+        // 공의 3차원 속도 성분 및 중력 상수 정의
         this.ballVelocity = new Vector3(0, 0, 0);
-        this.friction = 0.965;
+        this.friction = 0.97;
+        this.gravity = 0.035; // [수정] 공이 뜨고 떨어지게 만드는 중력 가속도값
         this.isResetting = false;
 
         this.scoreHome = 0; 
         this.scoreAway = 0; 
 
-        this.shootPowerMax = 1.9;
-        this.shootPowerCurrent = 0.4;
+        // [수정] 공 파워 소폭 상향 조정 데이터 밸런싱
+        this.shootPowerMax = 2.4; 
+        this.shootPowerCurrent = 0.5;
         this.isChargingShoot = false;
 
         this.initScene();
-        this.createProceduralGrassField(); // 격자 잔디 생성 추가
+        this.createProceduralGrassField();
         this.createRealGoals();
         this.createBall();
         this.player = new Player(this.scene);
@@ -301,74 +269,50 @@
       initScene() {
         this.camera = new FreeCamera("sideCamera", new Vector3(65, 26, 0), this.scene);
         this.camera.setTarget(new Vector3(0, -5, 0)); 
-        
         this.light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         this.light.intensity = 1.0;
       }
 
       createProceduralGrassField() {
-        // [추가] 캔버스를 이용해 잔디 구장의 스트라이프(격자 줄무늬) 텍스처를 동적으로 그립니다.
         const grassTexture = new DynamicTexture("grassTex", {width: 512, height: 1024}, this.scene);
         const ctx = grassTexture.getContext();
-
-        // 16개의 잔디 줄무늬 구역 그리기
         const stripes = 16;
         const stripeHeight = 1024 / stripes;
         for (let i = 0; i < stripes; i++) {
-          ctx.fillStyle = (i % 2 === 0) ? "#2e7d32" : "#388e3c"; // 짙은 녹색과 밝은 녹색 교차
+          ctx.fillStyle = (i % 2 === 0) ? "#2e7d32" : "#388e3c"; 
           ctx.fillRect(0, i * stripeHeight, 512, stripeHeight);
         }
-        
-        // 흰색 경기장 선 외곽 테두리선 추가 스케치
-        ctx.strokeStyle = "rgba(255,255,255,0.6)";
-        ctx.lineWidth = 12;
-        ctx.strokeRect(15, 15, 512 - 30, 1024 - 30);
-        
-        // 센터서클 라인 추가
-        ctx.beginPath();
-        ctx.arc(256, 512, 100, 0, 2 * Math.PI);
-        ctx.stroke();
-
+        ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = 12; ctx.strokeRect(15, 15, 512 - 30, 1024 - 30);
+        ctx.beginPath(); ctx.arc(256, 512, 100, 0, 2 * Math.PI); ctx.stroke();
         grassTexture.update();
 
         const field = MeshBuilder.CreateGround("soccerField", { width: this.fieldWidth, height: this.fieldHeight }, this.scene);
         const fieldMat = new StandardMaterial("fieldMat", this.scene);
         fieldMat.diffuseTexture = grassTexture;
-        fieldMat.specularColor = new Color3(0, 0, 0); // 빛 반사 억제하여 잔디 느낌 강화
+        fieldMat.specularColor = new Color3(0, 0, 0); 
         field.material = fieldMat;
       }
 
       createRealGoals() {
         this.goalW = 14; this.goalH = 5; this.goalD = 4;
-        this.createNetStructure(0, 50, this.goalW, this.goalH, this.goalD, true);  // AWAY 골대 (우측)
-        this.createNetStructure(0, -50, this.goalW, this.goalH, this.goalD, false); // HOME 골대 (좌측)
+        this.createNetStructure(0, 50, this.goalW, this.goalH, this.goalD, true);  
+        this.createNetStructure(0, -50, this.goalW, this.goalH, this.goalD, false); 
       }
 
       createNetStructure(x, z, w, h, d, isAwayGoal) {
         const whiteMat = new StandardMaterial("whiteMat", this.scene);
         whiteMat.diffuseColor = new Color3(0.95, 0.95, 0.95);
-
         const netMat = new StandardMaterial("netMat", this.scene);
-        netMat.diffuseColor = new Color3(0.9, 0.9, 0.9);
-        netMat.alpha = 0.2;
-
+        netMat.diffuseColor = new Color3(0.9, 0.9, 0.9); netMat.alpha = 0.2;
         const zDir = isAwayGoal ? 1 : -1;
 
-        const leftPost = MeshBuilder.CreateCylinder("postL", { height: h, diameter: 0.25 }, this.scene);
-        leftPost.position.set(x - w/2, h/2, z); leftPost.material = whiteMat;
-        const rightPost = MeshBuilder.CreateCylinder("postR", { height: h, diameter: 0.25 }, this.scene);
-        rightPost.position.set(x + w/2, h/2, z); rightPost.material = whiteMat;
-        const topBar = MeshBuilder.CreateCylinder("barT", { height: w, diameter: 0.25 }, this.scene);
-        topBar.position.set(x, h, z); topBar.rotation.z = Math.PI / 2; topBar.material = whiteMat;
-
-        const backNet = MeshBuilder.CreateBox("backNet", { width: w, height: h, depth: 0.1 }, this.scene);
-        backNet.position.set(x, h/2, z + (d * zDir)); backNet.material = netMat;
-        const topNet = MeshBuilder.CreateBox("topNet", { width: w, height: 0.1, depth: d }, this.scene);
-        topNet.position.set(x, h, z + (d/2 * zDir)); topNet.material = netMat;
-        const sideNetL = MeshBuilder.CreateBox("sideNetL", { width: 0.1, height: h, depth: d }, this.scene);
-        sideNetL.position.set(x - w/2, h/2, z + (d/2 * zDir)); sideNetL.material = netMat;
-        const sideNetR = MeshBuilder.CreateBox("sideNetR", { width: 0.1, height: h, depth: d }, this.scene);
-        sideNetR.position.set(x + w/2, h/2, z + (d/2 * zDir)); sideNetR.material = netMat;
+        const leftPost = MeshBuilder.CreateCylinder("postL", { height: h, diameter: 0.25 }, this.scene); leftPost.position.set(x - w/2, h/2, z); leftPost.material = whiteMat;
+        const rightPost = MeshBuilder.CreateCylinder("postR", { height: h, diameter: 0.25 }, this.scene); rightPost.position.set(x + w/2, h/2, z); rightPost.material = whiteMat;
+        const topBar = MeshBuilder.CreateCylinder("barT", { height: w, diameter: 0.25 }, this.scene); topBar.position.set(x, h, z); topBar.rotation.z = Math.PI / 2; topBar.material = whiteMat;
+        const backNet = MeshBuilder.CreateBox("backNet", { width: w, height: h, depth: 0.1 }, this.scene); backNet.position.set(x, h/2, z + (d * zDir)); backNet.material = netMat;
+        const topNet = MeshBuilder.CreateBox("topNet", { width: w, height: 0.1, depth: d }, this.scene); topNet.position.set(x, h, z + (d/2 * zDir)); topNet.material = netMat;
+        const sideNetL = MeshBuilder.CreateBox("sideNetL", { width: 0.1, height: h, depth: d }, this.scene); sideNetL.position.set(x - w/2, h/2, z + (d/2 * zDir)); sideNetL.material = netMat;
+        const sideNetR = MeshBuilder.CreateBox("sideNetR", { width: 0.1, height: h, depth: d }, this.scene); sideNetR.position.set(x + w/2, h/2, z + (d/2 * zDir)); sideNetR.material = netMat;
       }
 
       createBall() {
@@ -391,13 +335,8 @@
         this.isResetting = true;
         this.player.hasBall = false;
 
-        if (isAwayGoal) {
-          this.scoreHome++;
-          document.getElementById("score-home").innerText = this.scoreHome;
-        } else {
-          this.scoreAway++;
-          document.getElementById("score-away").innerText = this.scoreAway;
-        }
+        if (isAwayGoal) { this.scoreHome++; document.getElementById("score-home").innerText = this.scoreHome; }
+        else { this.scoreAway++; document.getElementById("score-away").innerText = this.scoreAway; }
 
         const overlay = document.getElementById("goal-overlay");
         overlay.style.display = "block";
@@ -414,19 +353,32 @@
         if (this.isResetting) return;
 
         if (this.player.hasBall) {
+          // 드리블 시에는 공을 지면에 단단히 고정
           const offset = this.player.moveDirection.scale(1.35);
           this.ball.position.x = this.player.mesh.position.x + offset.x;
           this.ball.position.z = this.player.mesh.position.z + offset.z;
           this.ball.position.y = this.ballRadius; 
           this.ballVelocity.set(0, 0, 0);
         } else {
+          // 1. 공 이동 물리 및 Y축 중력 시뮬레이션 적용
           this.ball.position.addInPlace(this.ballVelocity);
-          this.ballVelocity.scaleInPlace(this.friction);
+          
+          // 공이 공중에 떠있는 상태라면 Y축 속도에서 중력을 지속적으로 감산
+          if (this.ball.position.y > this.ballRadius) {
+            this.ballVelocity.y -= this.gravity;
+          } else {
+            // 공이 지면에 닿아있는 상태라면 Y축 속도 및 수직 좌표 고정 바운스 보정
+            this.ball.position.y = this.ballRadius;
+            this.ballVelocity.y = 0;
+            // 지면 마찰 마찰력은 바닥에 닿아있을 때만 강하게 작동
+            this.ballVelocity.x *= this.friction;
+            this.ballVelocity.z *= this.friction;
+          }
 
           if (this.ballVelocity.length() < 0.001) this.ballVelocity.set(0, 0, 0);
 
-          // 정밀한 골라인 통과 연산 판정 (골대 안 통과)
-          if (Math.abs(this.ball.position.z) >= 49.3) {
+          // 2. 골라인 통과 연산 판정
+          if (Math.abs(this.ball.position.z) >= 49.3 && this.ball.position.y <= this.goalH) {
             if (this.ball.position.x >= -this.goalW/2 && this.ball.position.x <= this.goalW/2) {
               const isAwayGoal = this.ball.position.z > 0;
               this.triggerGoal(isAwayGoal);
@@ -434,21 +386,35 @@
             }
           }
 
+          // 3. [수정] 경기장 밖(터치아웃) 발생 시 가까운 선 안쪽 플레이 리포지션 연산
           const borderX = (this.fieldWidth / 2) - this.ballRadius;
           const borderZ = (this.fieldHeight / 2) - this.ballRadius;
 
+          let isOut = false;
+
+          // 가로선 밖으로 나갔을 때
           if (Math.abs(this.ball.position.x) > borderX) {
-            this.ball.position.x = Math.sign(this.ball.position.x) * borderX;
-            this.ballVelocity.x *= -0.5;
+            this.ball.position.x = Math.sign(this.ball.position.x) * (borderX - 1); // 라인 안쪽 1m 지점 배치
+            isOut = true;
           }
+          // 세로 골라인 밖으로 나갔을 때 (단, 골대 궤적 외의 벽에 부딪힐 때만)
           if (Math.abs(this.ball.position.z) > borderZ) {
             if (this.ball.position.x < -this.goalW/2 || this.ball.position.x > this.goalW/2) {
-              this.ball.position.z = Math.sign(this.ball.position.z) * borderZ;
-              this.ballVelocity.z *= -0.5;
+              this.ball.position.z = Math.sign(this.ball.position.z) * (borderZ - 1);
+              isOut = true;
             }
           }
 
-          if (this.ball.position.y !== this.ballRadius) this.ball.position.y = this.ballRadius;
+          // 아웃 판정 발동 시, 공 속도를 즉시 멈추고 플레이어를 공 바로 뒤쪽으로 소환 재배치
+          if (isOut) {
+            this.ballVelocity.set(0, 0, 0);
+            this.ball.position.y = this.ballRadius;
+            
+            // 선수를 공의 위치에서 센터서클 정중앙 방향으로 약 1.5m 뒤편에 안전하게 재정렬
+            const centerDirection = new Vector3(0, 0, 0).subtract(this.ball.position).normalize();
+            this.player.mesh.position.copyFrom(this.ball.position.add(centerDirection.scale(1.8)));
+            this.player.mesh.position.y = 0; // 바닥 유지 고정
+          }
         }
       }
 
@@ -459,10 +425,12 @@
         const ballPos = this.ball.position;
         const distance = Vector3.Distance(playerPos, ballPos);
 
-        if (!this.player.hasBall && distance < 1.6) {
+        // 공 소유 판정 (단, 공이 너무 높게 떠있을 때는 발로 가로챌 수 없도록 Y축 높이 한계 가드 추가)
+        if (!this.player.hasBall && distance < 1.7 && this.ball.position.y < 1.8) {
           this.player.hasBall = true;
         }
 
+        // 스페이스바 파워 충전 루틴
         if (this.player.hasBall) {
           if (this.player.inputMap[" "]) {
             this.isChargingShoot = true;
@@ -470,17 +438,25 @@
             
             if (this.shootPowerCurrent < this.shootPowerMax) {
               this.shootPowerCurrent += 0.05;
-              const percent = ((this.shootPowerCurrent - 0.4) / (this.shootPowerMax - 0.4)) * 100;
+              const percent = ((this.shootPowerCurrent - 0.5) / (this.shootPowerMax - 0.5)) * 100;
               document.getElementById("power-bar").style.width = percent + "%";
             }
           } else if (this.isChargingShoot && !this.player.inputMap[" "]) {
             this.player.hasBall = false;
             this.isChargingShoot = false;
 
+            // [수정] 3D 포물선 탄도학 슛 메커니즘 연산: 
+            // 슛을 쏠 때 이동 방향 벡터와 함께 수직(Y축)을 향한 도약 벡터 성분을 슛 파워에 비례해 더해줍니다.
             const shootDirection = this.player.moveDirection.normalize();
-            this.ballVelocity = shootDirection.scale(this.shootPowerCurrent);
+            
+            this.ballVelocity.x = shootDirection.x * this.shootPowerCurrent;
+            this.ballVelocity.z = shootDirection.z * this.shootPowerCurrent;
+            
+            // 파워 게이지를 많이 채울수록 수직 상승 속도(Y축 속도)가 가파르게 상승하여 공이 높게 뜹니다.
+            this.ballVelocity.y = this.shootPowerCurrent * 0.38; 
 
-            this.shootPowerCurrent = 0.4;
+            // 초기화
+            this.shootPowerCurrent = 0.5;
             document.getElementById("power-bar-container").style.display = "none";
             document.getElementById("power-bar").style.width = "0%";
           }
