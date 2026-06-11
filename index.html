@@ -93,10 +93,10 @@
 <body>
 
   <div id="ui-container">
-    ⚔️ <b>전술 매치 시스템 고도화</b><br>
-    • 조작 변경: 공격 시 <span class="highlight">D 키 (슛 차징)</span> / 수비 시 <span class="highlight">Spacebar (공 뺏기/태클)</span><br>
-    • 키퍼 박스: 골대 앞 노란 영역 진입 시 슛 각도가 <span class="highlight">골대 중앙으로 자동 유도</span><br>
-    • AI 상향: 수비수들이 근접 시 <span class="highlight">대시 가속 및 태클</span>을 시도하여 플레이어 공 강탈 가능<br>
+    ⚔️ <b>전술 매치 시스템 고도화 (v2.0)</b><br>
+    • 조작 변경: 공격 시 <span class="highlight">D 키 (슛 차징)</span> / 수비 시 <span class="highlight">Spacebar (공 뺏기)</span><br>
+    • 페널티 박스: 골대 앞 노란 영역 진입 시 슛 각도가 <span class="highlight">골대 중앙으로 자동 유도</span><br>
+    • AI 상향: 수비수 압박 및 <span class="highlight">박스 내 골키퍼(GK) 능동적 마킹</span> 추가<br>
     • 이동: 화살표 키 (상하좌우 화면 기준) / E (대시)
     <div id="power-bar-container">
       <div id="power-bar"></div>
@@ -119,12 +119,12 @@
     const PLAYER_RADIUS = 1.0;
     const BALL_RADIUS = 0.55;
 
-    // 패널티 박스(슈팅 유도 존) 정의 규격
-    const PENALTY_BOX_W = 44;
-    const PENALTY_BOX_D = 30;
+    // 대폭 확장된 패널티 박스(슈팅 유도 및 GK 활동 존) 규격
+    const PENALTY_BOX_W = 66; 
+    const PENALTY_BOX_D = 40; 
 
     // ==========================================
-    // 1. Player 클래스 (D키 슈팅 및 스페이스바 태클)
+    // 1. Player 클래스
     // ==========================================
     class Player {
       constructor(scene) {
@@ -185,7 +185,7 @@
       }
 
       resetPosition() {
-        this.mesh.position.set(0, 0, -20); 
+        this.mesh.position.set(0, 0, -35); 
         this.moveDirection.set(0, 0, 1); 
         this.mesh.rotation.y = 0;
         this.currentSpeed = this.minSpeed;
@@ -244,17 +244,19 @@
     }
 
     // ==========================================
-    // 2. DummyPlayer 클래스 (대시, 태클 기능 고도화 AI)
+    // 2. DummyPlayer 클래스 (골키퍼 고도화 및 유니폼 분리)
     // ==========================================
     class DummyPlayer {
-      constructor(name, team, position, scene) {
+      constructor(name, team, role, position, scene) {
         this.name = name;
         this.team = team;
+        this.role = role; // "GK" 또는 "FIELD"
         this.initialPos = position.clone();
         this.targetPos = position.clone();
         this.scene = scene;
         this.baseSpeed = 0.11;
-        this.dashSpeed = 0.24; // 플레이어 발견 시 질주 속도
+        this.dashSpeed = 0.24; 
+        this.gkSpeed = 0.16; // 골키퍼 이동 속도
         this.hasBall = false;
         this.createMesh();
       }
@@ -265,8 +267,19 @@
         this.mesh.position.copyFrom(this.initialPos);
 
         const skinMat = new StandardMaterial("dummySkin", this.scene); skinMat.diffuseColor = new Color3(0.92, 0.75, 0.65);
-        const jerseyMat = new StandardMaterial("dummyJersey", this.scene); jerseyMat.diffuseColor = (this.team === "home") ? new Color3(0.85, 0.08, 0.08) : new Color3(0.08, 0.25, 0.85);
         const pantsMat = new StandardMaterial("dummyPants", this.scene); pantsMat.diffuseColor = (this.team === "home") ? new Color3(0.1, 0.1, 0.1) : new Color3(0.9, 0.9, 0.9);
+        
+        // 유니폼 색상 다형성 부여 (팀별 필드 플레이어 vs 골키퍼 개별 설정)
+        const jerseyMat = new StandardMaterial("dummyJersey", this.scene);
+        if (this.role === "GK") {
+          if (this.team === "home") {
+            jerseyMat.diffuseColor = new Color3(0.7, 0.9, 0.0); // 홈 키퍼: 형광 노랑 (Volt Yellow)
+          } else {
+            jerseyMat.diffuseColor = new Color3(0.5, 0.0, 0.5); // 어웨이 키퍼: 보라색 (Purple)
+          }
+        } else {
+          jerseyMat.diffuseColor = (this.team === "home") ? new Color3(0.85, 0.08, 0.08) : new Color3(0.08, 0.25, 0.85);
+        }
 
         const torso = MeshBuilder.CreateCylinder("dTorso", { diameterTop: 1.1, diameterBottom: 0.8, height: 1.6, tessellation: 10 }, this.scene);
         torso.position.y = 2.4; torso.scaling.z = 0.65; torso.material = jerseyMat; torso.parent = this.mesh;
@@ -280,28 +293,92 @@
         this.mesh.rotation.y = (this.team === "home") ? 0 : Math.PI;
       }
 
-      // ★ [AI 로직 고도화] 달리기를 사용하여 압박 후 사정거리 진입 시 태클 유기적 수행
-      updateAI(playerPos, ball, onTackleSuccess) {
+      // AI 로직 고도화: 일반 수비수 및 골키퍼 전술 움직임 분기
+      updateAI(playerPos, ball, fieldHeight, onTackleSuccess) {
+        if (this.role === "GK") {
+          this.updateGKLogic(playerPos, ball, fieldHeight, onTackleSuccess);
+        } else {
+          this.updateDefenderLogic(playerPos, ball, onTackleSuccess);
+        }
+      }
+
+      // [신규] 골키퍼 전용 인공지능 (확장 박스 안에서 능동적 방어 및 마킹)
+      updateGKLogic(playerPos, ball, fieldHeight, onTackleSuccess) {
+        const ballPos = ball.position;
+        const isAwayGK = (this.team === "away");
+        
+        // 골키퍼 전용 박스 경계선 기하 정의
+        const boxMinX = -PENALTY_BOX_W / 2 + 2.0;
+        const boxMaxX = PENALTY_BOX_W / 2 - 2.0;
+        const boxZCenter = isAwayGK ? (fieldHeight / 2) : -(fieldHeight / 2);
+        
+        const boxMinZ = isAwayGK ? (fieldHeight / 2 - PENALTY_BOX_D) : -(fieldHeight / 2);
+        const boxMaxZ = isAwayGK ? (fieldHeight / 2) : -(fieldHeight / 2 + PENALTY_BOX_D);
+
+        // 기본 타겟: 공의 X 좌표를 따라가되, 각도를 좁히기 위해 골대 기준 약간 전진 배치
+        let targetX = ballPos.x;
+        let targetZ = isAwayGK ? (boxZCenter - 5.0) : (boxZCenter + 5.0);
+
+        // 플레이어 혹은 공이 박스 내부로 침범하면 적극적으로 전진 마킹 및 가로채기 궤적 생성
+        const triggerDist = isAwayGK ? (ballPos.z > boxMinZ) : (ballPos.z < boxMaxZ);
+        if (triggerDist) {
+          targetX = ballPos.x;
+          targetZ = ballPos.z;
+        }
+
+        // 박스 경계선을 넘어가지 않도록 좌표 홀딩(클램핑 환경 구축)
+        this.targetPos.x = Math.max(boxMinX, Math.min(boxMaxX, targetX));
+        if (isAwayGK) {
+          this.targetPos.z = Math.max(boxMinZ, Math.min(boxMaxZ, targetZ));
+        } else {
+          this.targetPos.z = Math.min(boxMinZ, Math.max(boxMaxZ, targetZ));
+        }
+
+        // 골키퍼 이동 연산 수행
+        const moveVec = this.targetPos.subtract(this.mesh.position);
+        if (moveVec.length() > 0.1) {
+          moveVec.normalize();
+          this.mesh.position.addInPlace(moveVec.scale(this.gkSpeed));
+          this.mesh.rotation.y = Math.atan2(moveVec.x, moveVec.z);
+          
+          const time = performance.now() * 0.015;
+          this.leftLeg.rotation.x = Math.sin(time) * 0.5; this.rightLeg.rotation.x = -Math.sin(time) * 0.5;
+        } else {
+          this.leftLeg.rotation.x = 0; this.rightLeg.rotation.x = 0;
+          // 멈춰있을 때는 항상 공의 방향을 응시
+          const lookVec = ballPos.subtract(this.mesh.position);
+          this.mesh.rotation.y = Math.atan2(lookVec.x, lookVec.z);
+        }
+
+        // 골키퍼 물리 태클 및 공 차단 연산
+        const distToBall = Vector3.Distance(this.mesh.position, ballPos);
+        if (distToBall < 3.0) {
+          if (Math.random() < 0.15) {
+            this.mesh.position.addInPlace(ballPos.subtract(this.mesh.position).normalize().scale(1.2));
+            onTackleSuccess(this);
+          }
+        }
+      }
+
+      // 일반 어웨이 수비수 압박 AI
+      updateDefenderLogic(playerPos, ball, onTackleSuccess) {
         if (this.team === "home") return;
 
         const distToPlayer = Vector3.Distance(this.mesh.position, playerPos);
         let currentMoveSpeed = this.baseSpeed;
 
-        // 1. 거리에 따른 질주(Dash) 트리거 판단
         if (distToPlayer < 35) {
-          currentMoveSpeed = this.dashSpeed; // 플레이어가 구역 침범 시 강하게 대시 압박
+          currentMoveSpeed = this.dashSpeed; 
           const dirToPlayer = playerPos.subtract(this.initialPos).normalize();
-          this.targetPos.copyFrom(this.initialPos.add(dirToPlayer.scale(16))); // 최대 대형 유지 범위
+          this.targetPos.copyFrom(this.initialPos.add(dirToPlayer.scale(16))); 
         } else {
           this.targetPos.copyFrom(this.initialPos);
         }
 
-        // 2. 근접 시 슬라이딩 태클 작렬 (공 탈취 시도)
         if (distToPlayer < 2.5 && ball.playerHasBall) {
-          // 일정 확률 조건 또는 프레임 주기로 과감한 물리 태클 구현
           if (Math.random() < 0.08) { 
-            this.mesh.position.addInPlace(playerPos.subtract(this.mesh.position).normalize().scale(1.0)); // 순간 태클 돌진
-            onTackleSuccess(this); // 공 소유권 박탈 콜백 호출
+            this.mesh.position.addInPlace(playerPos.subtract(this.mesh.position).normalize().scale(1.0)); 
+            onTackleSuccess(this); 
           }
         }
 
@@ -323,7 +400,7 @@
     }
 
     // ==========================================
-    // 3. Game 클래스 (키퍼 가이드 박스 및 핵심 로직)
+    // 3. Game 클래스
     // ==========================================
     class Game {
       constructor(canvas) {
@@ -342,7 +419,7 @@
 
         this.initScene();
         this.createProceduralGrassField();
-        this.createGKZoneBoxes(); // 키퍼 활동 반경 박스 레이어 생성
+        this.createGKZoneBoxes(); 
         this.createRealGoals();
         this.createBall();
         this.player = new Player(this.scene);
@@ -351,30 +428,29 @@
 
       initScene() {
         this.scene.clearColor = new Color3(0.53, 0.81, 0.92);
-        this.camera = new FreeCamera("sideFollowCamera", new Vector3(90, 38, 0), this.scene);
+        this.camera = new FreeCamera("sideFollowCamera", new Vector3(90, 42, 0), this.scene);
         this.camera.setTarget(new Vector3(0, 0, 0)); 
         this.light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene); this.light.intensity = 0.8;
         const sunLight = new DirectionalLight("sunLight", new Vector3(-1, -2, -0.5), this.scene); sunLight.intensity = 0.9;
       }
 
-      // ★ [신규 추가] 골대 주변 가이드라인 박스 가시화 렌더링
+      // 와이드 확장형 페널티 가이드 박스 렌더링 레이어
       createGKZoneBoxes() {
         const zoneMat = new StandardMaterial("gkZoneMat", this.scene);
-        zoneMat.diffuseColor = new Color3(1, 0.85, 0); // 연노란색 가이드 컬러
-        zoneMat.alpha = 0.12; // 필드를 가리지 않게 투명도 설정
+        zoneMat.diffuseColor = new Color3(1, 0.85, 0); 
+        zoneMat.alpha = 0.12; 
 
-        // 어웨이팀 키퍼 박스 (Z 양수 영역)
+        // 어웨이팀 와이드 박스 (Z 양수 영역)
         this.awayGKBox = MeshBuilder.CreateBox("awayGKBox", { width: PENALTY_BOX_W, height: 0.1, depth: PENALTY_BOX_D }, this.scene);
         this.awayGKBox.position.set(0, 0.05, (this.fieldHeight / 2) - (PENALTY_BOX_D / 2));
         this.awayGKBox.material = zoneMat;
 
-        // 홈팀 키퍼 박스 (Z 음수 영역)
+        // 홈팀 와이드 박스 (Z 음수 영역)
         this.homeGKBox = MeshBuilder.CreateBox("homeGKBox", { width: PENALTY_BOX_W, height: 0.1, depth: PENALTY_BOX_D }, this.scene);
         this.homeGKBox.position.set(0, 0.05, -(this.fieldHeight / 2) + (PENALTY_BOX_D / 2));
         this.homeGKBox.material = zoneMat;
       }
 
-      // 플레이어가 어웨이팀 골대 앞 가이드 박스 내에 있는지 체크하는 기하 연산
       checkInAwayGKBox() {
         const pPos = this.player.mesh.position;
         const boxMinX = -PENALTY_BOX_W / 2; const boxMaxX = PENALTY_BOX_W / 2;
@@ -384,19 +460,22 @@
       }
 
       spawnFormationDummies() {
+        // 인자 형식 변경에 따른 구조 분할 스폰 메커니즘 ("GK" 역할 플래그 명시)
         const homePositions = [
-          { pos: "GK", coords: new Vector3(0, 0, -92) }, { pos: "LB", coords: new Vector3(-45, 0, -65) }, { pos: "LCB", coords: new Vector3(-15, 0, -70) },
-          { pos: "RCB", coords: new Vector3(15, 0, -70) }, { pos: "RB", coords: new Vector3(45, 0, -65) }, { pos: "LDM", coords: new Vector3(-18, 0, -42) },
-          { pos: "RDM", coords: new Vector3(18, 0, -42) }, { pos: "LAM", coords: new Vector3(-40, 0, -18) }, { pos: "CAM", coords: new Vector3(0, 0, -18) }, { pos: "RAM", coords: new Vector3(40, 0, -18) }
+          { role: "GK", coords: new Vector3(0, 0, -94) }, 
+          { role: "FIELD", coords: new Vector3(-45, 0, -65) }, { role: "FIELD", coords: new Vector3(-15, 0, -70) },
+          { role: "FIELD", coords: new Vector3(15, 0, -70) }, { role: "FIELD", coords: new Vector3(45, 0, -65) }, { role: "FIELD", coords: new Vector3(-18, 0, -42) },
+          { role: "FIELD", coords: new Vector3(18, 0, -42) }, { role: "FIELD", coords: new Vector3(-40, 0, -18) }, { role: "FIELD", coords: new Vector3(0, 0, -18) }, { role: "FIELD", coords: new Vector3(40, 0, -18) }
         ];
         const awayPositions = [
-          { pos: "GK", coords: new Vector3(0, 0, 92) }, { pos: "LB", coords: new Vector3(45, 0, 65) }, { pos: "LCB", coords: new Vector3(15, 0, 70) },
-          { pos: "RCB", coords: new Vector3(-15, 0, 70) }, { pos: "RB", coords: new Vector3(-45, 0, 65) }, { pos: "LDM", coords: new Vector3(18, 0, 42) },
-          { pos: "RDM", coords: new Vector3(-18, 0, 42) }, { pos: "LAM", coords: new Vector3(40, 0, 18) }, { pos: "CAM", coords: new Vector3(0, 0, 18) }, { pos: "RAM", coords: new Vector3(-40, 0, 18) },
-          { pos: "ST", coords: new Vector3(0, 0, 8) }   
+          { role: "GK", coords: new Vector3(0, 0, 94) }, 
+          { role: "FIELD", coords: new Vector3(45, 0, 65) }, { role: "FIELD", coords: new Vector3(15, 0, 70) },
+          { role: "FIELD", coords: new Vector3(-15, 0, 70) }, { role: "FIELD", coords: new Vector3(-45, 0, 65) }, { role: "FIELD", coords: new Vector3(18, 0, 42) },
+          { role: "FIELD", coords: new Vector3(-18, 0, 42) }, { role: "FIELD", coords: new Vector3(40, 0, 18) }, { role: "FIELD", coords: new Vector3(0, 0, 18) }, { role: "FIELD", coords: new Vector3(-40, 0, 18) },
+          { role: "FIELD", coords: new Vector3(0, 0, 8) }   
         ];
-        homePositions.forEach((p, idx) => { this.dummies.push(new DummyPlayer(`Home_${p.pos}_${idx}`, "home", p.coords, this.scene)); });
-        awayPositions.forEach((p, idx) => { this.dummies.push(new DummyPlayer(`Away_${p.pos}_${idx}`, "away", p.coords, this.scene)); });
+        homePositions.forEach((p, idx) => { this.dummies.push(new DummyPlayer(`Home_${p.role}_${idx}`, "home", p.role, p.coords, this.scene)); });
+        awayPositions.forEach((p, idx) => { this.dummies.push(new DummyPlayer(`Away_${p.role}_${idx}`, "away", p.role, p.coords, this.scene)); });
       }
 
       updateCameraFollow() {
@@ -405,7 +484,7 @@
         const targetCameraX = playerPos.x + 90; const targetCameraZ = playerPos.z;      
         this.camera.position.x = BABYLON.Scalar.Lerp(this.camera.position.x, targetCameraX, 0.07);
         this.camera.position.z = BABYLON.Scalar.Lerp(this.camera.position.z, targetCameraZ, 0.07);
-        this.camera.position.y = BABYLON.Scalar.Lerp(this.camera.position.y, 38, 0.07);
+        this.camera.position.y = BABYLON.Scalar.Lerp(this.camera.position.y, 42, 0.07);
         this.camera.setTarget(new Vector3(playerPos.x, playerPos.y + 2.0, playerPos.z));
       }
 
@@ -427,8 +506,6 @@
 
       createNetStructure(x, z, w, h, d, isAwayGoal) {
         const whiteMat = new StandardMaterial("whiteMat", this.scene); whiteMat.diffuseColor = new Color3(0.95, 0.95, 0.95);
-        const netMat = new StandardMaterial("netMat", this.scene); netMat.diffuseColor = new Color3(0.9, 0.9, 0.9); netMat.alpha = 0.2; 
-        const zDir = isAwayGoal ? 1 : -1;
         const leftPost = MeshBuilder.CreateCylinder("postL", { height: h, diameter: 0.4 }, this.scene); leftPost.position.set(x - w/2, h/2, z); leftPost.material = whiteMat;
         const rightPost = MeshBuilder.CreateCylinder("postR", { height: h, diameter: 0.4 }, this.scene); rightPost.position.set(x + w/2, h/2, z); rightPost.material = whiteMat;
         const topBar = MeshBuilder.CreateCylinder("barT", { height: w, diameter: 0.4 }, this.scene); topBar.position.set(x, h, z); topBar.rotation.z = Math.PI / 2; topBar.material = whiteMat;
@@ -473,9 +550,16 @@
       processBallPhysics() {
         if (this.isResetting) return;
 
-        // 적 팀 AI 더미가 공을 가졌을 때의 간이 드리블 물리 추적 코드 결합
         let aiHasBall = false;
-        this.dummies.forEach(d => { if(d.hasBall) { aiHasBall = true; this.ball.position.copyFrom(d.mesh.position.add(new Vector3(0, BALL_RADIUS, 1.8))); } });
+        this.dummies.forEach(d => { 
+          if(d.hasBall) { 
+            aiHasBall = true; 
+            // AI가 공을 가졌을 때 회전 정면 벡터 기반 물리 동기화 최적화
+            const forwardX = Math.sin(d.mesh.rotation.y);
+            const forwardZ = Math.cos(d.mesh.rotation.y);
+            this.ball.position.copyFrom(d.mesh.position.add(new Vector3(forwardX * 1.8, BALL_RADIUS, forwardZ * 1.8))); 
+          } 
+        });
 
         if (this.player.hasBall) {
           const offset = this.player.moveDirection.scale(1.9);
@@ -502,7 +586,6 @@
         }
       }
 
-      // ★ [조작계 스위칭 및 충돌 액션] D키 슛유도 및 스페이스바 수비 뺏기 시스템
       checkCollisionsAndActions() {
         if (this.isResetting) return;
 
@@ -510,15 +593,13 @@
         const ballPos = this.ball.position;
         const distance = Vector3.Distance(playerPos, ballPos);
 
-        // 아무도 안 잡은 상태에서 루즈볼 획득 판정
         let anyAiHasBall = this.dummies.some(d => d.hasBall);
         if (!this.player.hasBall && !anyAiHasBall && distance < 2.3 && this.ball.position.y < 2.5) {
           this.player.hasBall = true;
         }
 
-        // 1. 공격 시: D키를 활용한 게이지 차징 및 유도 슛 메커니즘
         if (this.player.hasBall) {
-          if (this.player.inputMap["d"]) { // 스페이스바에서 D키로 매핑 변경
+          if (this.player.inputMap["d"]) { 
             this.isChargingShoot = true;
             document.getElementById("power-bar-container").style.display = "block";
             if (this.shootPowerCurrent < this.shootPowerMax) {
@@ -529,7 +610,6 @@
             this.player.hasBall = false; this.isChargingShoot = false;
 
             let shootDirection;
-            // 가이드 박스 내부에 있을 시 어웨이팀 골대(X=0, Z=100) 방향으로 강제 락온 유도
             if (this.checkInAwayGKBox()) {
               const awayGoalTarget = new Vector3(0, BALL_RADIUS, this.fieldHeight / 2);
               shootDirection = awayGoalTarget.subtract(this.ball.position).normalize();
@@ -545,13 +625,12 @@
             document.getElementById("power-bar-container").style.display = "none";
           }
         } 
-        // 2. 수비 시: 플레이어가 스페이스바를 누르면 주변 AI 더미 공을 뺏어옴
         else {
-          if (this.player.inputMap[" "]) { // 수비 가로채기 동작
+          if (this.player.inputMap[" "]) { 
             this.dummies.forEach(dummy => {
               if (dummy.hasBall && Vector3.Distance(playerPos, dummy.mesh.position) < 3.2) {
                 dummy.hasBall = false;
-                this.player.hasBall = true; // 가로채기 대성공
+                this.player.hasBall = true; 
               }
             });
           }
@@ -565,14 +644,12 @@
           this.player.update(this.fieldWidth, this.fieldHeight);
           this.checkCollisionsAndActions();
           
-          // AI 수비 갱신 루프 및 태클 성공 시 콜백 바인딩
           this.dummies.forEach(dummy => {
-            dummy.updateAI(playerPos, this.ball, (tackler) => {
-              // 태클 당했을 때 콜백: 플레이어 공 박탈 후 루즈볼 피드백 처리
+            dummy.updateAI(playerPos, this.ball, this.fieldHeight, (tackler) => {
               if (this.player.hasBall) {
                 this.player.hasBall = false;
-                tackler.hasBall = true; // AI가 공을 빼앗음
-                setTimeout(() => { tackler.hasBall = false; }, 1200); // 간이 클리어링 방출 유도
+                tackler.hasBall = true; 
+                setTimeout(() => { tackler.hasBall = false; }, 1200); 
               }
             });
           });
