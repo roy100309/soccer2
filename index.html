@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Babylon.js Bright Stadium Soccer Game</title>
+  <title>Babylon.js Stadium Soccer Game - Clear View</title>
   <style>
     html, body {
       overflow: hidden;
@@ -11,7 +11,7 @@
       height: 100%;
       margin: 0;
       padding: 0;
-      background-color: #87CEEB; /* 스타디움 분위기에 맞춘 기본 하늘색 */
+      background-color: #87CEEB;
     }
     #renderCanvas {
       width: 100%;
@@ -93,9 +93,9 @@
 <body>
 
   <div id="ui-container">
-    🏟️ <b>실제 스타디움 & 라이브 관중석 업데이트</b><br>
-    • 조명: 어두운 암흑에서 <span class="highlight">화창한 맑은 날씨의 대형 경기장</span>으로 변경<br>
-    • 배경: 사방을 가득 채운 <span class="highlight">실감 나는 관중석 스탠드</span> 구현<br>
+    🏟️ <b>관중석 침범 방지 및 전면 시야 확보</b><br>
+    • 시야 개선: 화면을 가리던 <span class="highlight">앞쪽 정면 관중석 제거</span><br>
+    • 간격 조정: 선수의 동선을 방해하지 않게 <span class="highlight">관중석 스탠드를 경기장 뒤로 멀리 배치</span><br>
     • 이동: 화살표 키 / 대시: E 키 / 슛: 스페이스바 길게 누르기
     <div id="power-bar-container">
       <div id="power-bar"></div>
@@ -153,13 +153,14 @@
         const bootsMat = new StandardMaterial("bootsMat", this.scene);
         bootsMat.diffuseColor = new Color3(0.15, 0.65, 0.15);
 
-        // 상체 및 등번호
+        // 상체
         this.torso = MeshBuilder.CreateCylinder("torso", { diameterTop: 0.75, diameterBottom: 0.55, height: 1.1, tessellation: 12 }, this.scene);
         this.torso.position.y = 1.65; 
         this.torso.scaling.z = 0.65;
         this.torso.material = jerseyMat; 
         this.torso.parent = this.mesh;
 
+        // 등번호
         const numberPlate = MeshBuilder.CreatePlane("numPlate", { width: 0.45, height: 0.55 }, this.scene);
         numberPlate.position.set(0, 1.7, -0.22); 
         numberPlate.rotation.y = Math.PI; 
@@ -270,13 +271,14 @@
           this.torso.rotation.x = 0;
         }
 
+        // 경기장 안에서만 돌도록 하드 보더 설정
         this.mesh.position.x = Math.max(-39.5, Math.min(39.5, this.mesh.position.x));
         this.mesh.position.z = Math.max(-59.5, Math.min(59.5, this.mesh.position.z));
       }
     }
 
     // ==========================================
-    // 2. Game 클래스 (엔진 관리, 밝은 조명, 관중석 빌드)
+    // 2. Game 클래스 (엔진 관리, 밝은 조명, 최적화 관중석)
     // ==========================================
     class Game {
       constructor(canvas) {
@@ -302,45 +304,39 @@
         this.initScene();
         this.createProceduralGrassField();
         this.createRealGoals();
-        this.createStadiumGrandstands(); // [추가] 리얼 관중석 스탠드 생성 함수 호출
+        this.createStadiumGrandstands(); // 업데이트된 관중석 빌더 호출
         this.createBall();
         this.player = new Player(this.scene);
       }
 
       initScene() {
-        // 배경을 화창한 낮 하늘색(Sky Blue)으로 변경
         this.scene.clearColor = new Color3(0.53, 0.81, 0.92);
 
         this.camera = new FreeCamera("sideFollowCamera", new Vector3(65, 28, 0), this.scene);
         this.camera.setTarget(new Vector3(0, -3, 0)); 
         
-        // 사방을 골고루 밝혀주는 환경광 강도 업그레이드
         this.light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         this.light.intensity = 0.75;
 
-        // 실제 강렬한 햇빛 효과를 내는 직사광선(Directional Light) 추가 추가
         const sunLight = new DirectionalLight("sunLight", new Vector3(-1, -2, -0.5), this.scene);
         sunLight.intensity = 0.85;
       }
 
-      // [핵심 추가] 경기장을 사방으로 감싸는 입체적인 관중석 스탠드 절차적 그래픽 생성
+      // [수정] 플레이 영역을 완벽하게 확보하고 정면 시야를 가리는 앞쪽 스탠드를 제거한 버전
       createStadiumGrandstands() {
-        // 관중 무리를 표현할 노이즈 픽셀 텍스처 절차적 생성
         const crowdTexture = new DynamicTexture("crowdTex", {width: 512, height: 256}, this.scene);
         const ctx = crowdTexture.getContext();
         
-        // 붉은색, 블루색, 노란색 등 다양한 옷을 입은 수천 명의 관중 도트 드로잉
         for(let x=0; x<512; x+=4) {
           for(let y=0; y<256; y+=6) {
-            const r = Math.floor(Math.random() * 255);
-            const g = Math.floor(Math.random() * 255);
-            const b = Math.floor(Math.random() * 255);
+            const r = Math.floor(Math.random() * 200) + 55;
+            const g = Math.floor(Math.random() * 200) + 55;
+            const b = Math.floor(Math.random() * 200) + 55;
             ctx.fillStyle = `rgb(${r},${g},${b})`;
             ctx.fillRect(x, y, 4, 4);
           }
         }
-        // 계단형 스탠드 가로선 장식
-        ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(0,0,0,0.3)"; ctx.lineWidth = 2;
         for(let y=0; y<256; y+=16) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(512, y); ctx.stroke(); }
         crowdTexture.update();
 
@@ -348,33 +344,33 @@
         standMat.diffuseTexture = crowdTexture;
         standMat.specularColor = new Color3(0.1, 0.1, 0.1);
 
-        // 콘크리트 외벽 재질
-        const wallMat = new StandardMaterial("wallMat", this.scene);
-        wallMat.diffuseColor = new Color3(0.6, 0.6, 0.6);
-
-        // 좌측/우측 긴 관중석 스탠드 배치 (X축 방향 외곽 외곽)
-        const longStandW = 18; const longStandH = 15;
+        const standW = 20; 
+        const standH = 16;
         
-        // 왼쪽 스탠드 (경사진 모양)
-        const leftStand = MeshBuilder.CreateCylinder("leftStand", {diameterTop: longStandW + 15, diameterBottom: longStandW, height: this.fieldHeight + 20, tessellation: 4}, this.scene);
-        leftStand.position.set(-this.fieldWidth/2 - 8, longStandH/2, 0);
-        leftStand.rotation.y = Math.PI/4; leftStand.rotation.z = Math.PI/2;
-        leftStand.material = standMat;
+        // 안전 거리 오프셋 설정 (선수 이동 영역 바깥으로 밀어내기)
+        const safetyOffsetX = this.fieldWidth / 2 + 15;
+        const safetyOffsetZ = this.fieldHeight / 2 + 15;
 
-        // 오른쪽 스탠드
-        const rightStand = leftStand.clone("rightStand");
-        rightStand.position.x = this.fieldWidth/2 + 8;
-        rightStand.rotation.z = -Math.PI/2;
+        // 1. 건너편 스탠드 (X축 마이너스 방향 - 카메라 반대편)
+        const farStand = MeshBuilder.CreateCylinder("farStand", {diameterTop: standW + 18, diameterBottom: standW, height: this.fieldHeight + 40, tessellation: 4}, this.scene);
+        farStand.position.set(-safetyOffsetX, standH/2, 0);
+        farStand.rotation.y = Math.PI/4; 
+        farStand.rotation.z = Math.PI/2; 
+        farStand.material = standMat;
 
-        // 상단/하단 골대 뒤쪽 관중석 스탠드 배치 (Z축 방향 외곽)
-        const shortStand = MeshBuilder.CreateCylinder("shortStand", {diameterTop: longStandW + 15, diameterBottom: longStandW, height: this.fieldWidth + 20, tessellation: 4}, this.scene);
-        shortStand.position.set(0, longStandH/2, this.fieldHeight/2 + 8);
-        shortStand.rotation.y = Math.PI/4; shortStand.rotation.x = -Math.PI/2;
-        shortStand.material = standMat;
+        // 2. 위쪽 골대 뒤 스탠드 (Z축 플러스 방향)
+        const topStand = MeshBuilder.CreateCylinder("topStand", {diameterTop: standW + 18, diameterBottom: standW, height: this.fieldWidth + 40, tessellation: 4}, this.scene);
+        topStand.position.set(0, standH/2, safetyOffsetZ);
+        topStand.rotation.y = Math.PI/4; 
+        topStand.rotation.x = -Math.PI/2;
+        topStand.material = standMat;
 
-        const bottomStand = shortStand.clone("bottomStand");
-        bottomStand.position.z = -this.fieldHeight/2 - 8;
+        // 3. 아래쪽 골대 뒤 스탠드 (Z축 마이너스 방향)
+        const bottomStand = topStand.clone("bottomStand");
+        bottomStand.position.z = -safetyOffsetZ;
         bottomStand.rotation.x = Math.PI/2;
+
+        // ★ 우리가 보는 화면 쪽인 앞쪽 정면 스탠드(X축 플러스 방향)는 의도적으로 생성하지 않아 완벽한 시야 확보!
       }
 
       updateCameraFollow() {
@@ -399,7 +395,7 @@
         const stripes = 20; 
         const stripeHeight = 2048 / stripes;
         for (let i = 0; i < stripes; i++) {
-          ctx.fillStyle = (i % 2 === 0) ? "#388e3c" : "#4caf50"; // 더 밝고 선명한 잔디색조 보정
+          ctx.fillStyle = (i % 2 === 0) ? "#388e3c" : "#4caf50"; 
           ctx.fillRect(0, i * stripeHeight, 1024, stripeHeight);
         }
         ctx.strokeStyle = "rgba(255,255,255,0.75)"; ctx.lineWidth = 18; ctx.strokeRect(30, 30, 1024 - 60, 2048 - 60);
@@ -423,7 +419,7 @@
         const whiteMat = new StandardMaterial("whiteMat", this.scene);
         whiteMat.diffuseColor = new Color3(0.95, 0.95, 0.95);
         const netMat = new StandardMaterial("netMat", this.scene);
-        netMat.diffuseColor = new Color3(0.9, 0.9, 0.9); netMat.alpha = 0.25; // 그물망 가시성 상향
+        netMat.diffuseColor = new Color3(0.9, 0.9, 0.9); netMat.alpha = 0.25; 
         const zDir = isAwayGoal ? 1 : -1;
 
         const leftPost = MeshBuilder.CreateCylinder("postL", { height: h, diameter: 0.28 }, this.scene); leftPost.position.set(x - w/2, h/2, z); leftPost.material = whiteMat;
