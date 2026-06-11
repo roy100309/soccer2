@@ -131,7 +131,7 @@
         this.scene = scene;
         this.minSpeed = 0.18;     
         this.maxSpeed = 0.40;     
-        this.currentSpeed = 0.18; 
+        this.currentSpeed = 0.18;  
         this.acceleration = 0.014; 
         
         this.inputMap = {};
@@ -244,19 +244,19 @@
     }
 
     // ==========================================
-    // 2. DummyPlayer 클래스 (골키퍼 고도화 및 유니폼 분리)
+    // 2. DummyPlayer 클래스
     // ==========================================
     class DummyPlayer {
       constructor(name, team, role, position, scene) {
         this.name = name;
         this.team = team;
-        this.role = role; // "GK" 또는 "FIELD"
+        this.role = role; 
         this.initialPos = position.clone();
         this.targetPos = position.clone();
         this.scene = scene;
         this.baseSpeed = 0.11;
         this.dashSpeed = 0.24; 
-        this.gkSpeed = 0.16; // 골키퍼 이동 속도
+        this.gkSpeed = 0.16; 
         this.hasBall = false;
         this.createMesh();
       }
@@ -269,13 +269,12 @@
         const skinMat = new StandardMaterial("dummySkin", this.scene); skinMat.diffuseColor = new Color3(0.92, 0.75, 0.65);
         const pantsMat = new StandardMaterial("dummyPants", this.scene); pantsMat.diffuseColor = (this.team === "home") ? new Color3(0.1, 0.1, 0.1) : new Color3(0.9, 0.9, 0.9);
         
-        // 유니폼 색상 다형성 부여 (팀별 필드 플레이어 vs 골키퍼 개별 설정)
         const jerseyMat = new StandardMaterial("dummyJersey", this.scene);
         if (this.role === "GK") {
           if (this.team === "home") {
-            jerseyMat.diffuseColor = new Color3(0.7, 0.9, 0.0); // 홈 키퍼: 형광 노랑 (Volt Yellow)
+            jerseyMat.diffuseColor = new Color3(0.7, 0.9, 0.0); 
           } else {
-            jerseyMat.diffuseColor = new Color3(0.5, 0.0, 0.5); // 어웨이 키퍼: 보라색 (Purple)
+            jerseyMat.diffuseColor = new Color3(0.5, 0.0, 0.5); 
           }
         } else {
           jerseyMat.diffuseColor = (this.team === "home") ? new Color3(0.85, 0.08, 0.08) : new Color3(0.08, 0.25, 0.85);
@@ -293,7 +292,6 @@
         this.mesh.rotation.y = (this.team === "home") ? 0 : Math.PI;
       }
 
-      // AI 로직 고도화: 일반 수비수 및 골키퍼 전술 움직임 분기
       updateAI(playerPos, ball, fieldHeight, onTackleSuccess) {
         if (this.role === "GK") {
           this.updateGKLogic(playerPos, ball, fieldHeight, onTackleSuccess);
@@ -302,12 +300,10 @@
         }
       }
 
-      // [신규] 골키퍼 전용 인공지능 (확장 박스 안에서 능동적 방어 및 마킹)
       updateGKLogic(playerPos, ball, fieldHeight, onTackleSuccess) {
         const ballPos = ball.position;
         const isAwayGK = (this.team === "away");
         
-        // 골키퍼 전용 박스 경계선 기하 정의
         const boxMinX = -PENALTY_BOX_W / 2 + 2.0;
         const boxMaxX = PENALTY_BOX_W / 2 - 2.0;
         const boxZCenter = isAwayGK ? (fieldHeight / 2) : -(fieldHeight / 2);
@@ -315,18 +311,15 @@
         const boxMinZ = isAwayGK ? (fieldHeight / 2 - PENALTY_BOX_D) : -(fieldHeight / 2);
         const boxMaxZ = isAwayGK ? (fieldHeight / 2) : -(fieldHeight / 2 + PENALTY_BOX_D);
 
-        // 기본 타겟: 공의 X 좌표를 따라가되, 각도를 좁히기 위해 골대 기준 약간 전진 배치
         let targetX = ballPos.x;
         let targetZ = isAwayGK ? (boxZCenter - 5.0) : (boxZCenter + 5.0);
 
-        // 플레이어 혹은 공이 박스 내부로 침범하면 적극적으로 전진 마킹 및 가로채기 궤적 생성
         const triggerDist = isAwayGK ? (ballPos.z > boxMinZ) : (ballPos.z < boxMaxZ);
         if (triggerDist) {
           targetX = ballPos.x;
           targetZ = ballPos.z;
         }
 
-        // 박스 경계선을 넘어가지 않도록 좌표 홀딩(클램핑 환경 구축)
         this.targetPos.x = Math.max(boxMinX, Math.min(boxMaxX, targetX));
         if (isAwayGK) {
           this.targetPos.z = Math.max(boxMinZ, Math.min(boxMaxZ, targetZ));
@@ -334,7 +327,6 @@
           this.targetPos.z = Math.min(boxMinZ, Math.max(boxMaxZ, targetZ));
         }
 
-        // 골키퍼 이동 연산 수행
         const moveVec = this.targetPos.subtract(this.mesh.position);
         if (moveVec.length() > 0.1) {
           moveVec.normalize();
@@ -345,12 +337,10 @@
           this.leftLeg.rotation.x = Math.sin(time) * 0.5; this.rightLeg.rotation.x = -Math.sin(time) * 0.5;
         } else {
           this.leftLeg.rotation.x = 0; this.rightLeg.rotation.x = 0;
-          // 멈춰있을 때는 항상 공의 방향을 응시
           const lookVec = ballPos.subtract(this.mesh.position);
           this.mesh.rotation.y = Math.atan2(lookVec.x, lookVec.z);
         }
 
-        // 골키퍼 물리 태클 및 공 차단 연산
         const distToBall = Vector3.Distance(this.mesh.position, ballPos);
         if (distToBall < 3.0) {
           if (Math.random() < 0.15) {
@@ -360,7 +350,6 @@
         }
       }
 
-      // 일반 어웨이 수비수 압박 AI
       updateDefenderLogic(playerPos, ball, onTackleSuccess) {
         if (this.team === "home") return;
 
@@ -434,18 +423,15 @@
         const sunLight = new DirectionalLight("sunLight", new Vector3(-1, -2, -0.5), this.scene); sunLight.intensity = 0.9;
       }
 
-      // 와이드 확장형 페널티 가이드 박스 렌더링 레이어
       createGKZoneBoxes() {
         const zoneMat = new StandardMaterial("gkZoneMat", this.scene);
         zoneMat.diffuseColor = new Color3(1, 0.85, 0); 
         zoneMat.alpha = 0.12; 
 
-        // 어웨이팀 와이드 박스 (Z 양수 영역)
         this.awayGKBox = MeshBuilder.CreateBox("awayGKBox", { width: PENALTY_BOX_W, height: 0.1, depth: PENALTY_BOX_D }, this.scene);
         this.awayGKBox.position.set(0, 0.05, (this.fieldHeight / 2) - (PENALTY_BOX_D / 2));
         this.awayGKBox.material = zoneMat;
 
-        // 홈팀 와이드 박스 (Z 음수 영역)
         this.homeGKBox = MeshBuilder.CreateBox("homeGKBox", { width: PENALTY_BOX_W, height: 0.1, depth: PENALTY_BOX_D }, this.scene);
         this.homeGKBox.position.set(0, 0.05, -(this.fieldHeight / 2) + (PENALTY_BOX_D / 2));
         this.homeGKBox.material = zoneMat;
@@ -460,7 +446,6 @@
       }
 
       spawnFormationDummies() {
-        // 인자 형식 변경에 따른 구조 분할 스폰 메커니즘 ("GK" 역할 플래그 명시)
         const homePositions = [
           { role: "GK", coords: new Vector3(0, 0, -94) }, 
           { role: "FIELD", coords: new Vector3(-45, 0, -65) }, { role: "FIELD", coords: new Vector3(-15, 0, -70) },
@@ -554,7 +539,6 @@
         this.dummies.forEach(d => { 
           if(d.hasBall) { 
             aiHasBall = true; 
-            // AI가 공을 가졌을 때 회전 정면 벡터 기반 물리 동기화 최적화
             const forwardX = Math.sin(d.mesh.rotation.y);
             const forwardZ = Math.cos(d.mesh.rotation.y);
             this.ball.position.copyFrom(d.mesh.position.add(new Vector3(forwardX * 1.8, BALL_RADIUS, forwardZ * 1.8))); 
@@ -582,7 +566,16 @@
           let isOut = false;
           if (Math.abs(this.ball.position.x) > borderX) { this.ball.position.x = Math.sign(this.ball.position.x) * (borderX - 1.5); isOut = true; }
           if (Math.abs(this.ball.position.z) > borderZ) { if (this.ball.position.x < -this.goalW/2 || this.ball.position.x > this.goalW/2) { this.ball.position.z = Math.sign(this.ball.position.z) * (borderZ - 1.5); isOut = true; } }
-          if (isOut) { this.ballVelocity.set(0, 0, 0); this.ball.position.y = BALL_RADIUS; this.player.mesh.position.copyFrom(this.ball.position.add(new Vector3(0,0,-3))); }
+          
+          // 공이 라인 밖으로 나가면 정중앙에서 리스타트 설정
+          if (isOut) { 
+            this.ballVelocity.set(0, 0, 0); 
+            this.ball.position.set(0, BALL_RADIUS, 0); 
+            this.player.mesh.position.set(0, 0, -5); 
+            this.player.moveDirection.set(0, 0, 1);
+            this.player.mesh.rotation.y = 0;
+            this.player.currentSpeed = this.player.minSpeed;
+          }
         }
       }
 
@@ -639,6 +632,8 @@
 
       start() {
         this.engine.runRenderLoop(() => {
+          if (!this.scene) return;
+          
           const playerPos = this.player.mesh.position;
 
           this.player.update(this.fieldWidth, this.fieldHeight);
@@ -657,15 +652,21 @@
           this.handleHardPhysicsCollisions();
           this.processBallPhysics();
           this.updateCameraFollow();
+          
           this.scene.render();
         });
-        window.addEventListener('resize', () => { this.engine.resize(); });
       }
     }
 
-    window.addEventListener('DOMContentLoaded', () => {
-      const canvas = document.getElementById('renderCanvas');
-      const game = new Game(canvas); game.start();
+    // 엔트리 포인트 활성화
+    window.addEventListener("DOMContentLoaded", () => {
+      const canvas = document.getElementById("renderCanvas");
+      const game = new Game(canvas);
+      game.start();
+
+      window.addEventListener("resize", () => {
+        game.engine.resize();
+      });
     });
   </script>
 </body>
