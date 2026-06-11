@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Babylon.js Stadium Soccer Game - Clear View</title>
+  <title>Babylon.js Clean Stadium Soccer Game</title>
   <style>
     html, body {
       overflow: hidden;
@@ -93,9 +93,9 @@
 <body>
 
   <div id="ui-container">
-    🏟️ <b>관중석 침범 방지 및 전면 시야 확보</b><br>
-    • 시야 개선: 화면을 가리던 <span class="highlight">앞쪽 정면 관중석 제거</span><br>
-    • 간격 조정: 선수의 동선을 방해하지 않게 <span class="highlight">관중석 스탠드를 경기장 뒤로 멀리 배치</span><br>
+    🌱 <b>클린 필드 모드 업데이트</b><br>
+    • 환경: 방해되던 <span class="highlight">모든 관중석 구조물 완벽 제거</span><br>
+    • 장점: 카메라 사각지대 해소 및 원활한 충돌 처리 렉 방지<br>
     • 이동: 화살표 키 / 대시: E 키 / 슛: 스페이스바 길게 누르기
     <div id="power-bar-container">
       <div id="power-bar"></div>
@@ -271,14 +271,13 @@
           this.torso.rotation.x = 0;
         }
 
-        // 경기장 안에서만 돌도록 하드 보더 설정
         this.mesh.position.x = Math.max(-39.5, Math.min(39.5, this.mesh.position.x));
         this.mesh.position.z = Math.max(-59.5, Math.min(59.5, this.mesh.position.z));
       }
     }
 
     // ==========================================
-    // 2. Game 클래스 (엔진 관리, 밝은 조명, 최적화 관중석)
+    // 2. Game 클래스 (엔진 관리 및 씬 드로잉)
     // ==========================================
     class Game {
       constructor(canvas) {
@@ -304,7 +303,7 @@
         this.initScene();
         this.createProceduralGrassField();
         this.createRealGoals();
-        this.createStadiumGrandstands(); // 업데이트된 관중석 빌더 호출
+        // 관중석 함수(createStadiumGrandstands)는 완벽하게 생략하여 로드하지 않음
         this.createBall();
         this.player = new Player(this.scene);
       }
@@ -320,57 +319,6 @@
 
         const sunLight = new DirectionalLight("sunLight", new Vector3(-1, -2, -0.5), this.scene);
         sunLight.intensity = 0.85;
-      }
-
-      // [수정] 플레이 영역을 완벽하게 확보하고 정면 시야를 가리는 앞쪽 스탠드를 제거한 버전
-      createStadiumGrandstands() {
-        const crowdTexture = new DynamicTexture("crowdTex", {width: 512, height: 256}, this.scene);
-        const ctx = crowdTexture.getContext();
-        
-        for(let x=0; x<512; x+=4) {
-          for(let y=0; y<256; y+=6) {
-            const r = Math.floor(Math.random() * 200) + 55;
-            const g = Math.floor(Math.random() * 200) + 55;
-            const b = Math.floor(Math.random() * 200) + 55;
-            ctx.fillStyle = `rgb(${r},${g},${b})`;
-            ctx.fillRect(x, y, 4, 4);
-          }
-        }
-        ctx.strokeStyle = "rgba(0,0,0,0.3)"; ctx.lineWidth = 2;
-        for(let y=0; y<256; y+=16) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(512, y); ctx.stroke(); }
-        crowdTexture.update();
-
-        const standMat = new StandardMaterial("standMat", this.scene);
-        standMat.diffuseTexture = crowdTexture;
-        standMat.specularColor = new Color3(0.1, 0.1, 0.1);
-
-        const standW = 20; 
-        const standH = 16;
-        
-        // 안전 거리 오프셋 설정 (선수 이동 영역 바깥으로 밀어내기)
-        const safetyOffsetX = this.fieldWidth / 2 + 15;
-        const safetyOffsetZ = this.fieldHeight / 2 + 15;
-
-        // 1. 건너편 스탠드 (X축 마이너스 방향 - 카메라 반대편)
-        const farStand = MeshBuilder.CreateCylinder("farStand", {diameterTop: standW + 18, diameterBottom: standW, height: this.fieldHeight + 40, tessellation: 4}, this.scene);
-        farStand.position.set(-safetyOffsetX, standH/2, 0);
-        farStand.rotation.y = Math.PI/4; 
-        farStand.rotation.z = Math.PI/2; 
-        farStand.material = standMat;
-
-        // 2. 위쪽 골대 뒤 스탠드 (Z축 플러스 방향)
-        const topStand = MeshBuilder.CreateCylinder("topStand", {diameterTop: standW + 18, diameterBottom: standW, height: this.fieldWidth + 40, tessellation: 4}, this.scene);
-        topStand.position.set(0, standH/2, safetyOffsetZ);
-        topStand.rotation.y = Math.PI/4; 
-        topStand.rotation.x = -Math.PI/2;
-        topStand.material = standMat;
-
-        // 3. 아래쪽 골대 뒤 스탠드 (Z축 마이너스 방향)
-        const bottomStand = topStand.clone("bottomStand");
-        bottomStand.position.z = -safetyOffsetZ;
-        bottomStand.rotation.x = Math.PI/2;
-
-        // ★ 우리가 보는 화면 쪽인 앞쪽 정면 스탠드(X축 플러스 방향)는 의도적으로 생성하지 않아 완벽한 시야 확보!
       }
 
       updateCameraFollow() {
