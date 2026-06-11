@@ -93,10 +93,10 @@
 <body>
 
   <div id="ui-container">
-    ⚔️ <b>전술 매치 시스템 고도화 (v2.0)</b><br>
+    Extra ⚔️ <b>전술 매치 시스템 고도화 (v2.1)</b><br>
     • 조작 변경: 공격 시 <span class="highlight">D 키 (슛 차징)</span> / 수비 시 <span class="highlight">Spacebar (공 뺏기)</span><br>
     • 페널티 박스: 골대 앞 노란 영역 진입 시 슛 각도가 <span class="highlight">골대 중앙으로 자동 유도</span><br>
-    • AI 상향: 수비수 압박 및 <span class="highlight">박스 내 골키퍼(GK) 능동적 마킹</span> 추가<br>
+    • AI 상향: 수비수 압박 및 <span class="highlight">적극적인 볼 탈취(태클) 및 클리어링</span> 추가<br>
     • 이동: 화살표 키 (상하좌우 화면 기준) / E (대시)
     <div id="power-bar-container">
       <div id="power-bar"></div>
@@ -118,8 +118,6 @@
 
     const PLAYER_RADIUS = 1.0;
     const BALL_RADIUS = 0.55;
-
-    // 대폭 확장된 패널티 박스(슈팅 유도 및 GK 활동 존) 규격
     const PENALTY_BOX_W = 66; 
     const PENALTY_BOX_D = 40; 
 
@@ -244,7 +242,7 @@
     }
 
     // ==========================================
-    // 2. DummyPlayer 클래스
+    // 2. DummyPlayer 클래스 (상대팀 태클 및 클리어링 로직 강화)
     // ==========================================
     class DummyPlayer {
       constructor(name, team, role, position, scene) {
@@ -255,7 +253,7 @@
         this.targetPos = position.clone();
         this.scene = scene;
         this.baseSpeed = 0.11;
-        this.dashSpeed = 0.24; 
+        this.dashSpeed = 0.25; 
         this.gkSpeed = 0.16; 
         this.hasBall = false;
         this.createMesh();
@@ -292,11 +290,12 @@
         this.mesh.rotation.y = (this.team === "home") ? 0 : Math.PI;
       }
 
-      updateAI(playerPos, ball, fieldHeight, onTackleSuccess) {
+      updateAI(playerObj, ball, fieldHeight, onTackleSuccess) {
+        const playerPos = playerObj.mesh.position;
         if (this.role === "GK") {
           this.updateGKLogic(playerPos, ball, fieldHeight, onTackleSuccess);
         } else {
-          this.updateDefenderLogic(playerPos, ball, onTackleSuccess);
+          this.updateDefenderLogic(playerObj, ball, onTackleSuccess);
         }
       }
 
@@ -342,31 +341,48 @@
         }
 
         const distToBall = Vector3.Distance(this.mesh.position, ballPos);
-        if (distToBall < 3.0) {
-          if (Math.random() < 0.15) {
+        if (distToBall < 3.5) {
+          if (Math.random() < 0.20) {
             this.mesh.position.addInPlace(ballPos.subtract(this.mesh.position).normalize().scale(1.2));
             onTackleSuccess(this);
           }
         }
       }
 
-      updateDefenderLogic(playerPos, ball, onTackleSuccess) {
+      updateDefenderLogic(playerObj, ball, onTackleSuccess) {
+        // 원본과 동일하게 아군(Home) 수비수 AI는 제외 (플레이어 조작 집중)
         if (this.team === "home") return;
 
+        const playerPos = playerObj.mesh.position;
         const distToPlayer = Vector3.Distance(this.mesh.position, playerPos);
         let currentMoveSpeed = this.baseSpeed;
 
-        if (distToPlayer < 35) {
+        // 공을 뺏어서 본인이 소유하고 있을 때의 행동 (역습 드리블)
+        if (this.hasBall) {
+          // 아군 진영 반대편(플레이어 진영인 -Z 방향)으로 전진
+          this.mesh.rotation.y = Math.PI; 
+          this.mesh.position.z -= this.baseSpeed;
+          
+          const time = performance.now() * 0.015;
+          this.leftLeg.rotation.x = Math.sin(time) * 0.5; this.rightLeg.rotation.x = -Math.sin(time) * 0.5;
+          return;
+        }
+
+        // 플레이어 압박 조건 강화 (하프라인 근처 도달 시 적극 압박)
+        if (playerPos.z > -15 || distToPlayer < 45) {
           currentMoveSpeed = this.dashSpeed; 
-          const dirToPlayer = playerPos.subtract(this.initialPos).normalize();
-          this.targetPos.copyFrom(this.initialPos.add(dirToPlayer.scale(16))); 
+          // 플레이어의 위치를 직접 타겟팅하여 무조건 추격하도록 변경
+          this.targetPos.copyFrom(playerPos); 
         } else {
+          // 플레이어가 멀리 있다면 원래 포메이션 자기 자리로 복귀
           this.targetPos.copyFrom(this.initialPos);
         }
 
-        if (distToPlayer < 2.5 && ball.playerHasBall) {
-          if (Math.random() < 0.08) { 
-            this.mesh.position.addInPlace(playerPos.subtract(this.mesh.position).normalize().scale(1.0)); 
+        // 수비 성공(태클) 처리 로직 고도화
+        if (distToPlayer < 2.6 && playerObj.hasBall) {
+          // 범위 내 진입 시 확실하게 태클 확률 적용
+          if (Math.random() < 0.15) { 
+            this.mesh.position.addInPlace(playerPos.subtract(this.mesh.position).normalize().scale(0.8)); 
             onTackleSuccess(this); 
           }
         }
@@ -505,6 +521,7 @@
 
       triggerGoal(isAwayGoal) {
         if (this.isResetting) return; this.isResetting = true; this.player.hasBall = false;
+        this.dummies.forEach(d => d.hasBall = false);
         if (isAwayGoal) { this.scoreHome++; document.getElementById("score-home").innerText = this.scoreHome; }
         else { this.scoreAway++; document.getElementById("score-away").innerText = this.scoreAway; }
         const overlay = document.getElementById("goal-overlay"); overlay.style.display = "block";
@@ -518,7 +535,9 @@
           if (dist < minDist) { pPos.addInPlace(pPos.subtract(dPos).normalize().scale(minDist - dist)); }
         });
 
-        if (!this.player.hasBall) {
+        // 플레이어나 AI 누군가 공을 꽉 잡고 조작하고 있지 않을 때 순수 물리 충돌 연산
+        let anyAiHasBall = this.dummies.some(d => d.hasBall);
+        if (!this.player.hasBall && !anyAiHasBall) {
           const bPos = this.ball.position;
           this.dummies.forEach(dummy => {
             const dPos = dummy.mesh.position; const distToBall = Vector3.Distance(bPos, dPos); const collisionDist = PLAYER_RADIUS + BALL_RADIUS;
@@ -541,7 +560,8 @@
             aiHasBall = true; 
             const forwardX = Math.sin(d.mesh.rotation.y);
             const forwardZ = Math.cos(d.mesh.rotation.y);
-            this.ball.position.copyFrom(d.mesh.position.add(new Vector3(forwardX * 1.8, BALL_RADIUS, forwardZ * 1.8))); 
+            // 공을 가진 AI 캐릭터 바로 앞에 공이 달라붙어 흐르도록 물리 좌표 동기화
+            this.ball.position.copyFrom(d.mesh.position.add(new Vector3(forwardX * 1.5, BALL_RADIUS, forwardZ * 1.5))); 
           } 
         });
 
@@ -567,7 +587,6 @@
           if (Math.abs(this.ball.position.x) > borderX) { this.ball.position.x = Math.sign(this.ball.position.x) * (borderX - 1.5); isOut = true; }
           if (Math.abs(this.ball.position.z) > borderZ) { if (this.ball.position.x < -this.goalW/2 || this.ball.position.x > this.goalW/2) { this.ball.position.z = Math.sign(this.ball.position.z) * (borderZ - 1.5); isOut = true; } }
           
-          // 공이 라인 밖으로 나가면 정중앙에서 리스타트 설정
           if (isOut) { 
             this.ballVelocity.set(0, 0, 0); 
             this.ball.position.set(0, BALL_RADIUS, 0); 
@@ -587,6 +606,8 @@
         const distance = Vector3.Distance(playerPos, ballPos);
 
         let anyAiHasBall = this.dummies.some(d => d.hasBall);
+        
+        // 공이 루즈볼인 상태일 때 플레이어가 획득하는 조건
         if (!this.player.hasBall && !anyAiHasBall && distance < 2.3 && this.ball.position.y < 2.5) {
           this.player.hasBall = true;
         }
@@ -619,6 +640,7 @@
           }
         } 
         else {
+          // 플레이어가 공을 소유하지 않았을 때 Spacebar를 눌러 AI 공 뺏기(태클)
           if (this.player.inputMap[" "]) { 
             this.dummies.forEach(dummy => {
               if (dummy.hasBall && Vector3.Distance(playerPos, dummy.mesh.position) < 3.2) {
@@ -634,17 +656,26 @@
         this.engine.runRenderLoop(() => {
           if (!this.scene) return;
           
-          const playerPos = this.player.mesh.position;
+          const playerObj = this.player;
 
           this.player.update(this.fieldWidth, this.fieldHeight);
           this.checkCollisionsAndActions();
           
           this.dummies.forEach(dummy => {
-            dummy.updateAI(playerPos, this.ball, this.fieldHeight, (tackler) => {
+            // 태클 성공 시 작동 콜백 확장
+            dummy.updateAI(playerObj, this.ball, this.fieldHeight, (tackler) => {
               if (this.player.hasBall) {
                 this.player.hasBall = false;
                 tackler.hasBall = true; 
-                setTimeout(() => { tackler.hasBall = false; }, 1200); 
+                
+                // AI가 공을 빼앗은 후 1.2초 뒤에 플레이어 진영 빈 곳으로 강하게 클리어링(패스/킥) 연출
+                setTimeout(() => {
+                  if (tackler.hasBall) {
+                    tackler.hasBall = false;
+                    // 플레이어의 반대 골대 방향인 -Z 방향 축으로 강하게 공을 걷어참
+                    this.ballVelocity.set(BABYLON.Scalar.RandomRange(-0.5, 0.5), 1.0, -2.8); 
+                  }
+                }, 1200); 
               }
             });
           });
@@ -658,7 +689,6 @@
       }
     }
 
-    // 엔트리 포인트 활성화
     window.addEventListener("DOMContentLoaded", () => {
       const canvas = document.getElementById("renderCanvas");
       const game = new Game(canvas);
