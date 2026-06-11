@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Babylon.js 11v11 Giant Scale Side-View Soccer Game</title>
+  <title>Babylon.js 11v11 Tactical AI Soccer Game</title>
   <style>
     html, body {
       overflow: hidden;
@@ -93,11 +93,11 @@
 <body>
 
   <div id="ui-container">
-    🎥 <b>사이드 뷰 중계 시점 & 선수 스케일 업</b><br>
-    • 시점 복원: 정면을 탁 트이게 바라보는 <span class="highlight">기존 측면 추적 카메라(Side-View)</span> 복구<br>
-    • 스케일 업: 경기장 크기에 맞춰 <span class="highlight">선수들의 크기를 1.5배 크게 확대</span><br>
-    • 물리 충돌: 커진 덩치에 맞춰 충돌 히트박스 반경 동시 확장<br>
-    • 조작: 화살표 키 (이동) / E (대시) / 스페이스바 (슛 차징)
+    🤖 <b>조작계 복원 및 상대 전술 AI 탑재</b><br>
+    • 조작 복원: 사이드 뷰 화면 기준 <span class="highlight">기존 방향키 방식</span>으로 롤백 완료<br>
+    • 상대 AI: 무작정 덤비지 않고 <span class="highlight">대형을 유지하며 플레이어를 저지</span>하는 수비 전술 구사<br>
+    • 스케일: 선수 거대화 크기 및 완벽 충돌 판정 동일 유지<br>
+    • 이동: 화살표 키 (상/하: 전후진, 좌/우: 측면 이동) / E (대시) / 스페이스바 (슛)
     <div id="power-bar-container">
       <div id="power-bar"></div>
     </div>
@@ -116,12 +116,11 @@
   <script type="module">
     const { Engine, Scene, FreeCamera, Vector3, HemisphericLight, DirectionalLight, MeshBuilder, StandardMaterial, Color3, DynamicTexture } = BABYLON;
 
-    // 선수들의 덩치가 커짐에 따라 충돌 물리 반경 확장 (기존 0.6 -> 1.0)
     const PLAYER_RADIUS = 1.0;
     const BALL_RADIUS = 0.55;
 
     // ==========================================
-    // 1. Player 클래스 (1.5배 커진 리얼 3D 휴머노이드)
+    // 1. Player 클래스 (기존 방향키 조작계 복원)
     // ==========================================
     class Player {
       constructor(scene) {
@@ -158,25 +157,17 @@
         const bootsMat = new StandardMaterial("bootsMat", this.scene);
         bootsMat.diffuseColor = new Color3(0.15, 0.65, 0.15);
 
-        // 상체 (스케일 업 반영: 기존보다 크고 두껍게 조정)
         this.torso = MeshBuilder.CreateCylinder("torso", { diameterTop: 1.1, diameterBottom: 0.8, height: 1.6, tessellation: 12 }, this.scene);
-        this.torso.position.y = 2.4; 
-        this.torso.scaling.z = 0.65;
-        this.torso.material = jerseyMat; 
-        this.torso.parent = this.mesh;
+        this.torso.position.y = 2.4; this.torso.scaling.z = 0.65; this.torso.material = jerseyMat; this.torso.parent = this.mesh;
 
-        // 등번호
         const numberPlate = MeshBuilder.CreatePlane("numPlate", { width: 0.65, height: 0.8 }, this.scene);
-        numberPlate.position.set(0, 2.5, -0.36); 
-        numberPlate.rotation.y = Math.PI; 
+        numberPlate.position.set(0, 2.5, -0.36); numberPlate.rotation.y = Math.PI; 
         const tex = new DynamicTexture("dynamicTex", {width:256, height:256}, this.scene);
         tex.hasAlpha = true; const ctx = tex.getContext();
         ctx.fillStyle = "transparent"; ctx.font = "bold 150px Arial"; ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
         ctx.fillText("7", 128, 128); tex.update();
-        const numMat = new StandardMaterial("numMat", this.scene);
-        numMat.diffuseTexture = tex; numberPlate.material = numMat; numberPlate.parent = this.mesh;
+        const numMat = new StandardMaterial("numMat", this.scene); numMat.diffuseTexture = tex; numberPlate.material = numMat; numberPlate.parent = this.mesh;
 
-        // 목 및 머리
         const neck = MeshBuilder.CreateCylinder("neck", { diameter: 0.3, height: 0.35 }, this.scene);
         neck.position.y = 3.3; neck.material = skinMat; neck.parent = this.mesh;
 
@@ -184,15 +175,12 @@
         this.head.position.y = 3.75; this.head.material = skinMat; this.head.parent = this.mesh;
 
         const hair = MeshBuilder.CreateSphere("hair", { diameter: 0.68 }, this.scene);
-        hair.position.set(0, 3.9, -0.06);
-        const hairMat = new StandardMaterial("hairMat", this.scene); hairMat.diffuseColor = new Color3(0.15, 0.1, 0.05);
+        hair.position.set(0, 3.9, -0.06); const hairMat = new StandardMaterial("hairMat", this.scene); hairMat.diffuseColor = new Color3(0.15, 0.1, 0.05);
         hair.material = hairMat; hair.parent = this.mesh;
 
-        // 하체
         this.pelvis = MeshBuilder.CreateBox("pelvis", { width: 0.9, height: 0.5, depth: 0.6 }, this.scene);
         this.pelvis.position.y = 1.55; this.pelvis.material = pantsMat; this.pelvis.parent = this.mesh;
 
-        // 왼쪽 다리
         this.leftLegRoot = MeshBuilder.CreateBox("leftLegRoot", { size: 0.05 }, this.scene);
         this.leftLegRoot.position.set(-0.3, 1.4, 0); this.leftLegRoot.parent = this.mesh; this.leftLegRoot.isVisible = false;
         const leftThigh = MeshBuilder.CreateCylinder("leftThigh", { diameterTop: 0.4, diameterBottom: 0.32, height: 0.65 }, this.scene);
@@ -202,14 +190,12 @@
         const leftFoot = MeshBuilder.CreateBox("leftFoot", { width: 0.24, height: 0.18, depth: 0.45 }, this.scene);
         leftFoot.position.set(0, -1.3, 0.09); leftFoot.material = bootsMat; leftFoot.parent = this.leftLegRoot;
 
-        // 오른쪽 다리
         this.rightLegRoot = MeshBuilder.CreateBox("rightLegRoot", { size: 0.05 }, this.scene);
         this.rightLegRoot.position.set(0.3, 1.4, 0); this.rightLegRoot.parent = this.mesh; this.rightLegRoot.isVisible = false;
         const rightThigh = leftThigh.clone("rightThigh"); rightThigh.parent = this.rightLegRoot;
         const rightCalf = leftCalf.clone("rightCalf"); rightCalf.parent = this.rightLegRoot;
         const rightFoot = leftFoot.clone("rightFoot"); rightFoot.parent = this.rightLegRoot;
 
-        // 양팔
         this.leftArm = MeshBuilder.CreateCylinder("leftArm", { diameterTop: 0.25, diameterBottom: 0.2, height: 1.1 }, this.scene);
         this.leftArm.position.set(-0.72, 2.4, 0); this.leftArm.material = jerseyMat; this.leftArm.parent = this.mesh;
         this.rightArm = this.leftArm.clone("rightArm"); this.rightArm.position.x = 0.72; this.rightArm.parent = this.mesh;
@@ -241,10 +227,11 @@
         let moveX = 0;
         let moveZ = 0;
 
-        if (this.inputMap["arrowup"])    moveZ += 1; 
-        if (this.inputMap["arrowdown"])  moveZ -= 1; 
-        if (this.inputMap["arrowleft"])  moveX -= 1; 
-        if (this.inputMap["arrowright"]) moveX += 1; 
+        // ★ [기존 설정 복구] 화면 시점 기준 방향키 매핑 완료
+        if (this.inputMap["arrowup"])    moveX -= 1; 
+        if (this.inputMap["arrowdown"])  moveX += 1; 
+        if (this.inputMap["arrowleft"])  moveZ -= 1; 
+        if (this.inputMap["arrowright"]) moveZ += 1; 
 
         const isMoving = (moveX !== 0 || moveZ !== 0);
 
@@ -264,7 +251,6 @@
 
           const animeSpeed = this.currentSpeed * 0.12;
           const time = performance.now() * animeSpeed;
-          
           this.leftLegRoot.rotation.x = Math.sin(time) * 0.6;
           this.rightLegRoot.rotation.x = -Math.sin(time) * 0.6;
           this.leftArm.rotation.x = -Math.sin(time) * 0.4;
@@ -284,14 +270,16 @@
     }
 
     // ==========================================
-    // 2. DummyPlayer 클래스 (1.5배 커진 포메이션 더미)
+    // 2. DummyPlayer 클래스 (상대 전술 AI 탑재형)
     // ==========================================
     class DummyPlayer {
       constructor(name, team, position, scene) {
         this.name = name;
         this.team = team;
-        this.initialPos = position;
+        this.initialPos = position.clone();
+        this.targetPos = position.clone();
         this.scene = scene;
+        this.aiSpeed = 0.12; // 수비 이동 속도
         this.createMesh();
       }
 
@@ -309,7 +297,6 @@
         const pantsMat = new StandardMaterial("dummyPants", this.scene);
         pantsMat.diffuseColor = (this.team === "home") ? new Color3(0.1, 0.1, 0.1) : new Color3(0.9, 0.9, 0.9);
 
-        // 덩치 키운 몸체 구조 조립
         const torso = MeshBuilder.CreateCylinder("dTorso", { diameterTop: 1.1, diameterBottom: 0.8, height: 1.6, tessellation: 10 }, this.scene);
         torso.position.y = 2.4; torso.scaling.z = 0.65; torso.material = jerseyMat; torso.parent = this.mesh;
 
@@ -319,17 +306,55 @@
         const pelvis = MeshBuilder.CreateBox("dPelvis", { width: 0.9, height: 0.5, depth: 0.6 }, this.scene);
         pelvis.position.y = 1.55; pelvis.material = pantsMat; pelvis.parent = this.mesh;
 
-        const leftLeg = MeshBuilder.CreateCylinder("dLLeg", { diameter: 0.32, height: 1.3 }, this.scene);
-        leftLeg.position.set(-0.3, 0.75, 0); leftLeg.material = pantsMat; leftLeg.parent = this.mesh;
-
-        const rightLeg = leftLeg.clone("dRLeg"); rightLeg.position.x = 0.3; rightLeg.parent = this.mesh;
+        this.leftLeg = MeshBuilder.CreateCylinder("dLLeg", { diameter: 0.32, height: 1.3 }, this.scene);
+        this.leftLeg.position.set(-0.3, 0.75, 0); this.leftLeg.material = pantsMat; this.leftLeg.parent = this.mesh;
+        this.rightLeg = this.leftLeg.clone("dRLeg"); this.rightLeg.position.x = 0.3; this.rightLeg.parent = this.mesh;
 
         this.mesh.rotation.y = (this.team === "home") ? 0 : Math.PI;
+      }
+
+      // ★ [핵심 수비 AI 알고리즘] 무작정 뛰어들지 않고 대형 유지 및 차단 압박
+      updateAI(playerPos, ballPos) {
+        if (this.team === "home") return; // 아군 더미는 고정 유지
+
+        const distToPlayer = Vector3.Distance(this.mesh.position, playerPos);
+        
+        // 1. 플레이어가 32유닛 이내로 진입했을 때만 지역 대형을 유기적으로 이동하여 압박 시작
+        if (distToPlayer < 32) {
+          // 원래 위치(대형)에서 플레이어 쪽으로 최대 12유닛까지만 전진하여 진로 방해 (대형 붕괴 방지)
+          const dirToPlayer = playerPos.subtract(this.initialPos).normalize();
+          const targetLimit = this.initialPos.add(dirToPlayer.scale(12));
+          this.targetPos.copyFrom(targetLimit);
+        } else {
+          // 플레이어가 멀어지면 자신의 원래 전술 포메이션 자리(4-2-3-1 Zone)로 복귀
+          this.targetPos.copyFrom(this.initialPos);
+        }
+
+        // 목표 지점으로 스무스하게 러닝 이동
+        const moveVec = this.targetPos.subtract(this.mesh.position);
+        if (moveVec.length() > 0.1) {
+          moveVec.normalize();
+          this.mesh.position.addInPlace(moveVec.scale(this.aiSpeed));
+
+          // 움직일 때 몸싸움 시선 정렬
+          const angle = Math.atan2(moveVec.x, moveVec.z);
+          this.mesh.rotation.y = angle;
+
+          // 간단한 수비 발걸음 모션 애니메이션
+          const time = performance.now() * 0.015;
+          this.leftLeg.rotation.x = Math.sin(time) * 0.4;
+          this.rightLeg.rotation.x = -Math.sin(time) * 0.4;
+        } else {
+          this.leftLeg.rotation.x = 0; this.rightLeg.rotation.x = 0;
+          // 가만히 대기할 때는 플레이어를 주시
+          const lookVec = playerPos.subtract(this.mesh.position);
+          this.mesh.rotation.y = Math.atan2(lookVec.x, lookVec.z);
+        }
       }
     }
 
     // ==========================================
-    // 3. Game 클래스 (사이드 뷰 복원 및 충돌 제어)
+    // 3. Game 클래스 (엔진 관리 및 충돌/AI 결합 루프)
     // ==========================================
     class Game {
       constructor(canvas) {
@@ -365,7 +390,6 @@
       initScene() {
         this.scene.clearColor = new Color3(0.53, 0.81, 0.92);
 
-        // ★ [복원] 전처럼 정면 앞쪽을 비워둔 채 측면에서 트래킹하는 사이드 뷰 카메라
         this.camera = new FreeCamera("sideFollowCamera", new Vector3(90, 38, 0), this.scene);
         this.camera.setTarget(new Vector3(0, 0, 0)); 
         
@@ -377,7 +401,6 @@
       }
 
       spawnFormationDummies() {
-        // 4-2-3-1 대형 좌표 세팅
         const homePositions = [
           { pos: "GK",  coords: new Vector3(0, 0, -92) },
           { pos: "LB",  coords: new Vector3(-45, 0, -65) },
@@ -418,7 +441,6 @@
         if (!this.player || !this.player.mesh) return;
         const playerPos = this.player.mesh.position;
         
-        // 사이드 뷰 트래킹: X축(거리)과 Y축(높이)은 유지한 채 Z축(세로축)만 플레이어를 부드럽게 추적
         const targetCameraX = playerPos.x + 90; 
         const targetCameraY = 38;               
         const targetCameraZ = playerPos.z;      
@@ -433,11 +455,9 @@
       createProceduralGrassField() {
         const grassTexture = new DynamicTexture("grassTex", {width: 1024, height: 2048}, this.scene);
         const ctx = grassTexture.getContext();
-        const stripes = 26; 
-        const stripeHeight = 2048 / stripes;
+        const stripes = 26; const stripeHeight = 2048 / stripes;
         for (let i = 0; i < stripes; i++) {
-          ctx.fillStyle = (i % 2 === 0) ? "#2e7d32" : "#388e3c"; 
-          ctx.fillRect(0, i * stripeHeight, 1024, stripeHeight);
+          ctx.fillStyle = (i % 2 === 0) ? "#2e7d32" : "#388e3c"; ctx.fillRect(0, i * stripeHeight, 1024, stripeHeight);
         }
         ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.lineWidth = 14; ctx.strokeRect(20, 20, 1024 - 40, 2048 - 40);
         ctx.beginPath(); ctx.moveTo(20, 1024); ctx.lineTo(1024-20, 1024); ctx.stroke();
@@ -445,9 +465,7 @@
         grassTexture.update();
 
         const field = MeshBuilder.CreateGround("soccerField", { width: this.fieldWidth, height: this.fieldHeight }, this.scene);
-        const fieldMat = new StandardMaterial("fieldMat", this.scene);
-        fieldMat.diffuseTexture = grassTexture;
-        fieldMat.specularColor = new Color3(0.02, 0.02, 0.02);
+        const fieldMat = new StandardMaterial("fieldMat", this.scene); fieldMat.diffuseTexture = grassTexture; fieldMat.specularColor = new Color3(0.02, 0.02, 0.02);
         field.material = fieldMat;
       }
 
@@ -458,12 +476,9 @@
       }
 
       createNetStructure(x, z, w, h, d, isAwayGoal) {
-        const whiteMat = new StandardMaterial("whiteMat", this.scene);
-        whiteMat.diffuseColor = new Color3(0.95, 0.95, 0.95);
-        const netMat = new StandardMaterial("netMat", this.scene);
-        netMat.diffuseColor = new Color3(0.9, 0.9, 0.9); netMat.alpha = 0.2; 
+        const whiteMat = new StandardMaterial("whiteMat", this.scene); whiteMat.diffuseColor = new Color3(0.95, 0.95, 0.95);
+        const netMat = new StandardMaterial("netMat", this.scene); netMat.diffuseColor = new Color3(0.9, 0.9, 0.9); netMat.alpha = 0.2; 
         const zDir = isAwayGoal ? 1 : -1;
-
         const leftPost = MeshBuilder.CreateCylinder("postL", { height: h, diameter: 0.4 }, this.scene); leftPost.position.set(x - w/2, h/2, z); leftPost.material = whiteMat;
         const rightPost = MeshBuilder.CreateCylinder("postR", { height: h, diameter: 0.4 }, this.scene); rightPost.position.set(x + w/2, h/2, z); rightPost.material = whiteMat;
         const topBar = MeshBuilder.CreateCylinder("barT", { height: w, diameter: 0.4 }, this.scene); topBar.position.set(x, h, z); topBar.rotation.z = Math.PI / 2; topBar.material = whiteMat;
@@ -473,8 +488,7 @@
       createBall() {
         this.ball = MeshBuilder.CreateSphere("soccerBall", { diameter: BALL_RADIUS * 2 }, this.scene);
         this.resetBall();
-        const ballMat = new StandardMaterial("ballMat", this.scene);
-        ballMat.diffuseColor = new Color3(1, 1, 1);
+        const ballMat = new StandardMaterial("ballMat", this.scene); ballMat.diffuseColor = new Color3(1, 1, 1);
         this.ball.material = ballMat;
       }
 
@@ -505,7 +519,7 @@
       handleHardPhysicsCollisions() {
         const pPos = this.player.mesh.position;
 
-        // 커진 PLAYER_RADIUS 기틀 하에 정밀 연산 밀어내기
+        // 플레이어 vs 모든 더미 결착 해결 밀어내기
         this.dummies.forEach(dummy => {
           const dPos = dummy.mesh.position;
           const dist = Vector3.Distance(pPos, dPos);
@@ -518,6 +532,7 @@
           }
         });
 
+        // 공 vs 모든 더미 팅겨내기 피드백
         if (!this.player.hasBall) {
           const bPos = this.ball.position;
           
@@ -544,7 +559,6 @@
         if (this.isResetting) return;
 
         if (this.player.hasBall) {
-          // 커진 몸집에 맞춰 볼의 리프팅 오프셋 간격 넓힘
           const offset = this.player.moveDirection.scale(1.9);
           this.ball.position.x = this.player.mesh.position.x + offset.x;
           this.ball.position.z = this.player.mesh.position.z + offset.z;
@@ -608,7 +622,6 @@
         const ballPos = this.ball.position;
         const distance = Vector3.Distance(playerPos, ballPos);
 
-        // 덩치가 커졌으므로 공을 드리블 상태로 전환하는 판정 획득 범위 조정
         if (!this.player.hasBall && distance < 2.3 && this.ball.position.y < 2.5) {
           this.player.hasBall = true;
         }
@@ -641,9 +654,17 @@
 
       start() {
         this.engine.runRenderLoop(() => {
+          const playerPos = this.player.mesh.position;
+          const ballPos = this.ball.position;
+
           this.player.update(this.fieldWidth, this.fieldHeight);
           this.checkCollisionsAndActions();
           
+          // ★ 상대 팀 더미들의 전술 수비 AI 업데이트 실행
+          this.dummies.forEach(dummy => {
+            dummy.updateAI(playerPos, ballPos);
+          });
+
           this.handleHardPhysicsCollisions();
           this.processBallPhysics();
           
