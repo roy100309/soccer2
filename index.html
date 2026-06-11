@@ -93,11 +93,11 @@
 <body>
 
   <div id="ui-container">
-    Extra ⚔️ <b>전술 매치 시스템 고도화 (v2.1)</b><br>
-    • 조작 변경: 공격 시 <span class="highlight">D 키 (슛 차징)</span> / 수비 시 <span class="highlight">Spacebar (공 뺏기)</span><br>
-    • 페널티 박스: 골대 앞 노란 영역 진입 시 슛 각도가 <span class="highlight">골대 중앙으로 자동 유도</span><br>
-    • AI 상향: 수비수 압박 및 <span class="highlight">적극적인 볼 탈취(태클) 및 클리어링</span> 추가<br>
-    • 이동: 화살표 키 (상하좌우 화면 기준) / E (대시)
+    ⚔️ <b>전술 매치 시스템 고도화 (v2.5 - FC 온라인 슈팅 에디션)</b><br>
+    • 슈팅 강화: <span class="highlight">D 키 게이지 가중치</span> 추가 (풀게이지 시 레이저 슛)<br>
+    • 타격감 연출: 강한 슈팅 시 <span class="highlight">카메라 흔들림(임팩트)</span> 발동<br>
+    • 페널티 박스: 골대 앞 노란 영역 진입 시 슛 각도가 <span class="highlight">골대 구석/중앙으로 유도</span><br>
+    • 이동: 화살표 키 / E (대시) / 수비 시 Spacebar (공 뺏기)
     <div id="power-bar-container">
       <div id="power-bar"></div>
     </div>
@@ -242,7 +242,7 @@
     }
 
     // ==========================================
-    // 2. DummyPlayer 클래스 (상대팀 태클 및 클리어링 로직 강화)
+    // 2. DummyPlayer 클래스
     // ==========================================
     class DummyPlayer {
       constructor(name, team, role, position, scene) {
@@ -350,16 +350,13 @@
       }
 
       updateDefenderLogic(playerObj, ball, onTackleSuccess) {
-        // 원본과 동일하게 아군(Home) 수비수 AI는 제외 (플레이어 조작 집중)
         if (this.team === "home") return;
 
         const playerPos = playerObj.mesh.position;
         const distToPlayer = Vector3.Distance(this.mesh.position, playerPos);
         let currentMoveSpeed = this.baseSpeed;
 
-        // 공을 뺏어서 본인이 소유하고 있을 때의 행동 (역습 드리블)
         if (this.hasBall) {
-          // 아군 진영 반대편(플레이어 진영인 -Z 방향)으로 전진
           this.mesh.rotation.y = Math.PI; 
           this.mesh.position.z -= this.baseSpeed;
           
@@ -368,19 +365,14 @@
           return;
         }
 
-        // 플레이어 압박 조건 강화 (하프라인 근처 도달 시 적극 압박)
         if (playerPos.z > -15 || distToPlayer < 45) {
           currentMoveSpeed = this.dashSpeed; 
-          // 플레이어의 위치를 직접 타겟팅하여 무조건 추격하도록 변경
           this.targetPos.copyFrom(playerPos); 
         } else {
-          // 플레이어가 멀리 있다면 원래 포메이션 자기 자리로 복귀
           this.targetPos.copyFrom(this.initialPos);
         }
 
-        // 수비 성공(태클) 처리 로직 고도화
         if (distToPlayer < 2.6 && playerObj.hasBall) {
-          // 범위 내 진입 시 확실하게 태클 확률 적용
           if (Math.random() < 0.15) { 
             this.mesh.position.addInPlace(playerPos.subtract(this.mesh.position).normalize().scale(0.8)); 
             onTackleSuccess(this); 
@@ -405,7 +397,7 @@
     }
 
     // ==========================================
-    // 3. Game 클래스
+    // 3. Game 클래스 (FC 온라인 스타일 슈팅/임팩트 구현)
     // ==========================================
     class Game {
       constructor(canvas) {
@@ -415,10 +407,17 @@
         
         this.fieldWidth = 140; this.fieldHeight = 200;
         this.ballVelocity = new Vector3(0, 0, 0);
-        this.friction = 0.982; this.gravity = 0.042; this.isResetting = false;
+        this.friction = 0.985; this.gravity = 0.045; this.isResetting = false;
 
         this.scoreHome = 0; this.scoreAway = 0; 
-        this.shootPowerMax = 3.9; this.shootPowerCurrent = 0.8; this.isChargingShoot = false;
+        
+        // FC 온라인 스타일을 위해 슛 파워 한도 대폭 상향
+        this.shootPowerMax = 6.2; 
+        this.shootPowerCurrent = 1.0; 
+        this.isChargingShoot = false;
+
+        // 카메라 쉐이크 강도 전역 제어 변수
+        this.cameraShakeIntensity = 0;
 
         this.dummies = [];
 
@@ -447,10 +446,6 @@
         this.awayGKBox = MeshBuilder.CreateBox("awayGKBox", { width: PENALTY_BOX_W, height: 0.1, depth: PENALTY_BOX_D }, this.scene);
         this.awayGKBox.position.set(0, 0.05, (this.fieldHeight / 2) - (PENALTY_BOX_D / 2));
         this.awayGKBox.material = zoneMat;
-
-        this.homeGKBox = MeshBuilder.CreateBox("homeGKBox", { width: PENALTY_BOX_W, height: 0.1, depth: PENALTY_BOX_D }, this.scene);
-        this.homeGKBox.position.set(0, 0.05, -(this.fieldHeight / 2) + (PENALTY_BOX_D / 2));
-        this.homeGKBox.material = zoneMat;
       }
 
       checkInAwayGKBox() {
@@ -482,7 +477,17 @@
       updateCameraFollow() {
         if (!this.player || !this.player.mesh) return;
         const playerPos = this.player.mesh.position;
-        const targetCameraX = playerPos.x + 90; const targetCameraZ = playerPos.z;      
+        
+        let targetCameraX = playerPos.x + 90; 
+        let targetCameraZ = playerPos.z;      
+        
+        // 슈팅 임팩트 시 카메라 쉐이크 연출 구현
+        if (this.cameraShakeIntensity > 0.05) {
+          targetCameraX += BABYLON.Scalar.RandomRange(-this.cameraShakeIntensity, this.cameraShakeIntensity) * 15;
+          targetCameraZ += BABYLON.Scalar.RandomRange(-this.cameraShakeIntensity, this.cameraShakeIntensity) * 15;
+          this.cameraShakeIntensity *= 0.88; // 쉐이크 감쇄율
+        }
+
         this.camera.position.x = BABYLON.Scalar.Lerp(this.camera.position.x, targetCameraX, 0.07);
         this.camera.position.z = BABYLON.Scalar.Lerp(this.camera.position.z, targetCameraZ, 0.07);
         this.camera.position.y = BABYLON.Scalar.Lerp(this.camera.position.y, 42, 0.07);
@@ -535,7 +540,6 @@
           if (dist < minDist) { pPos.addInPlace(pPos.subtract(dPos).normalize().scale(minDist - dist)); }
         });
 
-        // 플레이어나 AI 누군가 공을 꽉 잡고 조작하고 있지 않을 때 순수 물리 충돌 연산
         let anyAiHasBall = this.dummies.some(d => d.hasBall);
         if (!this.player.hasBall && !anyAiHasBall) {
           const bPos = this.ball.position;
@@ -560,7 +564,6 @@
             aiHasBall = true; 
             const forwardX = Math.sin(d.mesh.rotation.y);
             const forwardZ = Math.cos(d.mesh.rotation.y);
-            // 공을 가진 AI 캐릭터 바로 앞에 공이 달라붙어 흐르도록 물리 좌표 동기화
             this.ball.position.copyFrom(d.mesh.position.add(new Vector3(forwardX * 1.5, BALL_RADIUS, forwardZ * 1.5))); 
           } 
         });
@@ -607,7 +610,6 @@
 
         let anyAiHasBall = this.dummies.some(d => d.hasBall);
         
-        // 공이 루즈볼인 상태일 때 플레이어가 획득하는 조건
         if (!this.player.hasBall && !anyAiHasBall && distance < 2.3 && this.ball.position.y < 2.5) {
           this.player.hasBall = true;
         }
@@ -617,30 +619,46 @@
             this.isChargingShoot = true;
             document.getElementById("power-bar-container").style.display = "block";
             if (this.shootPowerCurrent < this.shootPowerMax) {
-              this.shootPowerCurrent += 0.09;
-              document.getElementById("power-bar").style.width = ((this.shootPowerCurrent - 0.8) / (this.shootPowerMax - 0.8)) * 100 + "%";
+              this.shootPowerCurrent += 0.16; // 차징 속도 대폭 조절로 시원한 인터페이스 리스폰스
+              document.getElementById("power-bar").style.width = ((this.shootPowerCurrent - 1.0) / (this.shootPowerMax - 1.0)) * 100 + "%";
             }
           } else if (this.isChargingShoot && !this.player.inputMap["d"]) {
             this.player.hasBall = false; this.isChargingShoot = false;
 
             let shootDirection;
+            const ratio = (this.shootPowerCurrent - 1.0) / (this.shootPowerMax - 1.0);
+
             if (this.checkInAwayGKBox()) {
-              const awayGoalTarget = new Vector3(0, BALL_RADIUS, this.fieldHeight / 2);
+              // FC 온라인 특유의 ZD 감아차기나 구석 조준 느낌을 살리기 위해 랜덤 난수 구석 보정 적용
+              const randomCornerX = Math.random() < 0.5 ? -this.goalW/2 + 2.5 : this.goalW/2 - 2.5;
+              const awayGoalTarget = new Vector3(randomCornerX, BALL_RADIUS, this.fieldHeight / 2);
               shootDirection = awayGoalTarget.subtract(this.ball.position).normalize();
             } else {
               shootDirection = this.player.moveDirection.normalize();
             }
 
+            // [FC ONLINE 스타일 물리엔진 튜닝 핵심]
+            // 강하게 찰수록 위로 뜨는 수치(Y축)는 억제하고 정면(Z, X축) 힘을 무지막지하게 받아 레이저 슈팅 구현
             this.ballVelocity.x = shootDirection.x * this.shootPowerCurrent;
             this.ballVelocity.z = shootDirection.z * this.shootPowerCurrent;
-            this.ballVelocity.y = this.shootPowerCurrent * 0.42; 
+            
+            // 게이지가 너무 높으면 홈런(하늘로 솟구침), 적당히 높으면(빨래줄 슛) 각도 유지 보정
+            if (ratio > 0.85) {
+              this.ballVelocity.y = this.shootPowerCurrent * 0.55; // 과충전 홈런 위험성
+            } else {
+              this.ballVelocity.y = this.shootPowerCurrent * (0.18 + (1 - ratio) * 0.15); // 깔려 들어가는 강한 슛
+            }
 
-            this.shootPowerCurrent = 0.8;
+            // 카메라 진동 가동 (강하게 찰수록 크게 흔들림)
+            if (ratio > 0.4) {
+              this.cameraShakeIntensity = ratio * 0.45;
+            }
+
+            this.shootPowerCurrent = 1.0;
             document.getElementById("power-bar-container").style.display = "none";
           }
         } 
         else {
-          // 플레이어가 공을 소유하지 않았을 때 Spacebar를 눌러 AI 공 뺏기(태클)
           if (this.player.inputMap[" "]) { 
             this.dummies.forEach(dummy => {
               if (dummy.hasBall && Vector3.Distance(playerPos, dummy.mesh.position) < 3.2) {
@@ -662,17 +680,14 @@
           this.checkCollisionsAndActions();
           
           this.dummies.forEach(dummy => {
-            // 태클 성공 시 작동 콜백 확장
             dummy.updateAI(playerObj, this.ball, this.fieldHeight, (tackler) => {
               if (this.player.hasBall) {
                 this.player.hasBall = false;
                 tackler.hasBall = true; 
                 
-                // AI가 공을 빼앗은 후 1.2초 뒤에 플레이어 진영 빈 곳으로 강하게 클리어링(패스/킥) 연출
                 setTimeout(() => {
                   if (tackler.hasBall) {
                     tackler.hasBall = false;
-                    // 플레이어의 반대 골대 방향인 -Z 방향 축으로 강하게 공을 걷어참
                     this.ballVelocity.set(BABYLON.Scalar.RandomRange(-0.5, 0.5), 1.0, -2.8); 
                   }
                 }, 1200); 
