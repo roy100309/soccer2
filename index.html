@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Babylon.js Advanced Soccer Game - Physics Upgraded V2</title>
+  <title>Babylon.js Side-View Follow Camera Soccer Game</title>
   <style>
     html, body {
       overflow: hidden;
@@ -92,11 +92,11 @@
 <body>
 
   <div id="ui-container">
-    🎮 <b>새로운 업데이트 내역</b><br>
-    • 이동: <span class="highlight">화살표 키 (↑, ↓, ←, →)</span><br>
-    • 대시: <span class="highlight">E 키</span> (부드러운 가속 및 감속 적용)<br>
-    • 슛: 스페이스바 <span class="highlight">길게 누르기</span> (낮고 빠르게 깔려 나가는 탄도 구현)<br>
-    • 버그 수정: 골대 안으로 들어간 공만 <span class="highlight">정확히 골 판정</span>
+    🎥 <b>사이드 뷰 선수 추적 카메라 업데이트</b><br>
+    • 이동: <span class="highlight">↑ / ↓ / ← / →</span> (선수 기준 회전 및 전후진 조작 유지)<br>
+    • 대시: <span class="highlight">E 키</span> (부드러운 가속 질주)<br>
+    • 슛: 스페이스바 <span class="highlight">길게 누르기</span> (고공 포물선 로빙 슛)<br>
+    • 카메라: 양쪽 골대가 끝에 오는 뷰를 유지하며 <span class="highlight">선수만 포커싱 추적</span>
     <div id="power-bar-container">
       <div id="power-bar"></div>
     </div>
@@ -116,15 +116,16 @@
     const { Engine, Scene, FreeCamera, Vector3, HemisphericLight, MeshBuilder, StandardMaterial, Color3, DynamicTexture } = BABYLON;
 
     // ==========================================
-    // 1. Player 클래스 (자연스러운 가속도 구현)
+    // 1. Player 클래스
     // ==========================================
     class Player {
       constructor(scene) {
         this.scene = scene;
-        this.minSpeed = 0.11;     // 평상시 속도
-        this.maxSpeed = 0.26;     // 최대 대시 속도
-        this.currentSpeed = 0.11; // 현재 연산되는 실시간 속도
-        this.acceleration = 0.008; // 가속도 민감도
+        this.minSpeed = 0.11;     
+        this.maxSpeed = 0.26;     
+        this.currentSpeed = 0.11; 
+        this.acceleration = 0.008; 
+        this.rotateSpeed = 0.045; 
         
         this.inputMap = {};
         this.hasBall = false;
@@ -147,7 +148,6 @@
         const socksMat = new StandardMaterial("socksMat", this.scene);
         socksMat.diffuseColor = new Color3(0.1, 0.1, 0.1); 
 
-        // 몸통 & 등번호
         this.torso = MeshBuilder.CreateBox("torso", { width: 0.8, height: 1.1, depth: 0.45 }, this.scene);
         this.torso.position.y = 1.35; this.torso.material = jerseyMat; this.torso.parent = this.mesh;
 
@@ -160,11 +160,14 @@
         const numMat = new StandardMaterial("numMat", this.scene);
         numMat.diffuseTexture = tex; numberPlate.material = numMat; numberPlate.parent = this.mesh;
 
-        // 하의, 머리, 사지
         this.pants = MeshBuilder.CreateBox("pants", { width: 0.82, height: 0.4, depth: 0.47 }, this.scene);
         this.pants.position.y = 0.8; this.pants.material = pantsMat; this.pants.parent = this.mesh;
         this.head = MeshBuilder.CreateSphere("head", { diameter: 0.52 }, this.scene);
         this.head.position.y = 2.15; this.head.material = skinMat; this.head.parent = this.mesh;
+        
+        const nose = MeshBuilder.CreateBox("visor", {width: 0.15, height: 0.1, depth: 0.2}, this.scene);
+        nose.position.set(0, 2.15, 0.25); nose.material = socksMat; nose.parent = this.mesh;
+
         this.leftLeg = MeshBuilder.CreateCylinder("leftLeg", { height: 0.7, diameter: 0.22 }, this.scene);
         this.leftLeg.position.set(-0.24, 0.35, 0); this.leftLeg.material = socksMat; this.leftLeg.parent = this.mesh;
         this.rightLeg = this.leftLeg.clone("rightLeg"); this.rightLeg.position.x = 0.24; this.rightLeg.parent = this.mesh;
@@ -177,8 +180,7 @@
 
       resetPosition() {
         this.mesh.position.set(-20, 0, 0); 
-        this.moveDirection.set(0, 0, 1); 
-        this.mesh.rotation.y = Math.PI / 2;
+        this.mesh.rotation.y = Math.PI / 2; 
         this.currentSpeed = this.minSpeed;
       }
 
@@ -196,32 +198,33 @@
       }
 
       update() {
-        let moveX = 0;
-        let moveZ = 0;
+        if (this.inputMap["arrowleft"])  this.mesh.rotation.y -= this.rotateSpeed;
+        if (this.inputMap["arrowright"]) this.mesh.rotation.y += this.rotateSpeed;
 
-        if (this.inputMap["arrowup"])    moveX -= 1;
-        if (this.inputMap["arrowdown"])  moveX += 1;
-        if (this.inputMap["arrowleft"])  moveZ -= 1;
-        if (this.inputMap["arrowright"]) moveZ += 1;
+        const sinY = Math.sin(this.mesh.rotation.y);
+        const cosY = Math.cos(this.mesh.rotation.y);
+        this.moveDirection.set(sinY, 0, cosY); 
 
-        // [수정] 자연스러운 가속도/감속도 보간 물리 연산
-        if (this.inputMap["e"] && (moveX !== 0 || moveZ !== 0)) {
-          // E를 누르고 움직이는 중이면 부드럽게 가속
+        let isMoving = false;
+        let speedSign = 0;
+
+        if (this.inputMap["arrowup"]) {
+          speedSign = 1;
+          isMoving = true;
+        } else if (this.inputMap["arrowdown"]) {
+          speedSign = -1;
+          isMoving = true;
+        }
+
+        if (this.inputMap["e"] && isMoving) {
           this.currentSpeed = Math.min(this.maxSpeed, this.currentSpeed + this.acceleration);
         } else {
-          // E를 떼거나 멈추면 부드럽게 감속
           this.currentSpeed = Math.max(this.minSpeed, this.currentSpeed - this.acceleration * 1.5);
         }
 
-        if (moveX !== 0 || moveZ !== 0) {
-          const inputDir = new Vector3(moveX, 0, moveZ).normalize();
-          this.mesh.position.addInPlace(inputDir.scale(this.currentSpeed));
-          this.moveDirection.copyFrom(inputDir);
+        if (isMoving) {
+          this.mesh.position.addInPlace(this.moveDirection.scale(this.currentSpeed * speedSign));
 
-          const angle = Math.atan2(inputDir.x, inputDir.z);
-          this.mesh.rotation.y = angle;
-
-          // 달리기 속도 수치에 동기화되는 다리 모션 속도
           const animeSpeed = this.currentSpeed * 0.12;
           const time = performance.now() * animeSpeed;
           this.leftLeg.rotation.x = Math.sin(time) * 0.5;
@@ -233,14 +236,13 @@
           this.leftArm.rotation.x = 0; this.rightArm.rotation.x = 0;
         }
 
-        // 대형 경기장 외곽 하드가드 제한 (80x120 규격에 맞춤)
         this.mesh.position.x = Math.max(-39.5, Math.min(39.5, this.mesh.position.x));
         this.mesh.position.z = Math.max(-59.5, Math.min(59.5, this.mesh.position.z));
       }
     }
 
     // ==========================================
-    // 2. Game 클래스 (경기장 확장 및 정밀 골 감지)
+    // 2. Game 클래스 (사이드 뷰 추적 카메라 연산)
     // ==========================================
     class Game {
       constructor(canvas) {
@@ -248,19 +250,18 @@
         this.engine = new Engine(this.canvas, true);
         this.scene = new Scene(this.engine);
         
-        // [수정] 경기장 크기 대폭 추가 확장 (가로 80, 세로 120)
         this.fieldWidth = 80;
         this.fieldHeight = 120;
         
         this.ballVelocity = new Vector3(0, 0, 0);
-        this.friction = 0.975; // 공 구름성 개선
-        this.gravity = 0.045;  // 중력 효과 고정
+        this.friction = 0.975; 
+        this.gravity = 0.038; 
         this.isResetting = false;
 
         this.scoreHome = 0; 
         this.scoreAway = 0; 
 
-        this.shootPowerMax = 2.6; 
+        this.shootPowerMax = 2.5; 
         this.shootPowerCurrent = 0.6;
         this.isChargingShoot = false;
 
@@ -272,17 +273,37 @@
       }
 
       initScene() {
-        // 넓어진 경기장에 맞춰 카메라 시점 거리 및 높이 멀리 조절
-        this.camera = new FreeCamera("sideCamera", new Vector3(75, 32, 0), this.scene);
-        this.camera.setTarget(new Vector3(0, -6, 0)); 
+        // 사이드 뷰 (골대가 좌우 양끝에 오는 구도) 카메라 초기 설정
+        this.camera = new FreeCamera("sideFollowCamera", new Vector3(65, 28, 0), this.scene);
+        this.camera.setTarget(new Vector3(0, -3, 0)); 
         this.light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         this.light.intensity = 1.0;
+      }
+
+      // [핵심 추가] 매 프레임 선수의 위치 변화에 따라 카메라의 시점을 부드럽게 매칭시키는 함수
+      updateCameraFollow() {
+        if (!this.player || !this.player.mesh) return;
+
+        const playerPos = this.player.mesh.position;
+        
+        // 골대가 좌우 양끝에 머무는 구도(X축 방향에서 바라봄)를 지켜야 하므로 고정 거리를 유지합니다.
+        const targetCameraX = playerPos.x + 65; // 플레이어로부터의 사이드 뷰 거리 오프셋
+        const targetCameraY = 28;               // 안정적인 하이앵글 높이 고정
+        const targetCameraZ = playerPos.z;      // 플레이어의 위아래 움직임을 완벽 추적
+
+        // 카메라 위치를 목표 지점으로 부드럽게 보간 이동 (Lerp 효과)
+        this.camera.position.x = BABYLON.Scalar.Lerp(this.camera.position.x, targetCameraX, 0.08);
+        this.camera.position.z = BABYLON.Scalar.Lerp(this.camera.position.z, targetCameraZ, 0.08);
+        this.camera.position.y = BABYLON.Scalar.Lerp(this.camera.position.y, targetCameraY, 0.08);
+
+        // 카메라는 항상 플레이어의 발밑 중심을 정밀하게 타겟팅하여 바라봅니다.
+        this.camera.setTarget(new Vector3(playerPos.x, playerPos.y, playerPos.z));
       }
 
       createProceduralGrassField() {
         const grassTexture = new DynamicTexture("grassTex", {width: 1024, height: 2048}, this.scene);
         const ctx = grassTexture.getContext();
-        const stripes = 20; // 넓어진 경기장에 맞춤 잔디선 패턴
+        const stripes = 20; 
         const stripeHeight = 2048 / stripes;
         for (let i = 0; i < stripes; i++) {
           ctx.fillStyle = (i % 2 === 0) ? "#2b722d" : "#338537"; 
@@ -301,7 +322,6 @@
 
       createRealGoals() {
         this.goalW = 16; this.goalH = 5.5; this.goalD = 4.5;
-        // 확장된 구장 규격 Z = +-60 위치에 정렬
         this.createNetStructure(0, 60, this.goalW, this.goalH, this.goalD, true);  
         this.createNetStructure(0, -60, this.goalW, this.goalH, this.goalD, false); 
       }
@@ -366,7 +386,6 @@
           this.ball.position.y = this.ballRadius; 
           this.ballVelocity.set(0, 0, 0);
         } else {
-          // 공 이동 물리 프레임 갱신
           this.ball.position.addInPlace(this.ballVelocity);
           
           if (this.ball.position.y > this.ballRadius) {
@@ -380,11 +399,8 @@
 
           if (this.ballVelocity.length() < 0.001) this.ballVelocity.set(0, 0, 0);
 
-          // [버그 수정 완료] 골대 안 통과 정밀 감지 연산 보정
-          // 공의 Z좌표가 정확하게 최종 엔드라인 골대 내부 구역에 진입했는지를 체크
           const currentZ = this.ball.position.z;
           if (Math.abs(currentZ) >= 59.3) {
-            // 핵심 교정: 골대 가로 규격(w/2) 내부에 위치하면서 높이가 골대 상단(goalH) 이하일 때만 골인 판정 트리거
             if (this.ball.position.x >= -this.goalW/2 && this.ball.position.x <= this.goalW/2) {
               if (this.ball.position.y <= this.goalH + 0.3) {
                 const isAwayGoal = currentZ > 0;
@@ -394,7 +410,6 @@
             }
           }
 
-          // 아웃 오브 바운즈 (터치 아웃 및 골대 외곽 라인아웃) 리포지션 연산
           const borderX = (this.fieldWidth / 2) - this.ballRadius;
           const borderZ = (this.fieldHeight / 2) - this.ballRadius;
           let isOut = false;
@@ -403,7 +418,6 @@
             this.ball.position.x = Math.sign(this.ball.position.x) * (borderX - 1.2);
             isOut = true;
           }
-          // 골대 구역 바깥의 벽에 부딪혔을 때만 아웃라인 보정 처리하여 골 안쪽 진입 유도
           if (Math.abs(this.ball.position.z) > borderZ) {
             if (this.ball.position.x < -this.goalW/2 || this.ball.position.x > this.goalW/2) {
               this.ball.position.z = Math.sign(this.ball.position.z) * (borderZ - 1.2);
@@ -446,15 +460,11 @@
             this.player.hasBall = false;
             this.isChargingShoot = false;
 
-            // [수정] 직선 레이저 슈팅 탄도학 연산 구현
-            // 전방 추진 속도 성분은 강화하고, 위로 뜨는 Y축 성분을 낮추어 깔려 나가는 탄도로 조정
             const shootDirection = this.player.moveDirection.normalize();
-            
             this.ballVelocity.x = shootDirection.x * this.shootPowerCurrent;
             this.ballVelocity.z = shootDirection.z * this.shootPowerCurrent;
             
-            // 기존 0.38 계수를 0.12로 대폭 낮춰 포물선이 아닌 낮고 빠른 무회전 슛 구현 (중력에 의해 떨어짐)
-            this.ballVelocity.y = this.shootPowerCurrent * 0.12; 
+            this.ballVelocity.y = this.shootPowerCurrent * 0.35; // 고공 포물선 로빙 탄도
 
             this.shootPowerCurrent = 0.6;
             document.getElementById("power-bar-container").style.display = "none";
@@ -468,6 +478,10 @@
           this.player.update();
           this.checkCollisionsAndActions();
           this.processBallPhysics();
+          
+          // 매 프레임 카메라가 선수를 부드럽게 사이드에서 추적하도록 호출
+          this.updateCameraFollow();
+          
           this.scene.render();
         });
         window.addEventListener('resize', () => {
